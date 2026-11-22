@@ -1,6 +1,5 @@
 using System.Data.Common;
 using System.Reflection;
-using Backend.Kernel.Domain;
 using Backend.Kernel.Persistence;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
