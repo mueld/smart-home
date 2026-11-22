@@ -1,0 +1,72 @@
+- id: "1"
+  title: Home-Assistant-Gateway für Matter-Geräte
+  description: >-
+    Ein Home-Assistant-Adapter im Modul Home (eine WebSocket-Verbindung, ein Gateway-Interface, ein Fake)
+    mit Auth, schmalen Abos, Reconnect mit Backoff und get_states nach jedem Verbindungsaufbau (AD-18, CAP-10).
+  spec_checkpoint: true
+  done_checkpoint: true
+  invoke_dev_with: >-
+    Vertikaler Slice mit TDD an der Backend-Grenze; Tests setzen den Fake des Gateways ein, kein echtes Home Assistant.
+    Entity-IDs und Token kommen aus der Konfiguration (Options-Pattern, Secret aus der Umgebung). Code englisch, Code-Namen
+    wie in CONTEXT.md (ADR 0005).
+- id: "2"
+  title: Bewegung am Eingang empfangen
+  description: >-
+    Eine Bewegung des Bewegungsmelders erreicht das Backend über das Gateway als Command RecordMotion mit
+    fachlichem Zeitpunkt (CAP-10, AD-18, AD-19).
+- id: "3"
+  title: Steckdosen schalten und Leistung lesen
+  description: >-
+    Schaltbefehle an n Steckdosen sind Outbox-Aufträge mit Zielzustand (ein oder aus); die zuletzt gemeldete Leistung
+    jeder Steckdose ist abrufbar und kommt als Command RecordPower an (CAP-10, AD-8, AD-9, AD-18).
+- id: "4"
+  title: Abwesend nach 2 Minuten ohne IP
+  description: >-
+    Das Aggregate Presence nimmt jede IP-Prüfung von 192.168.1.29 auf und rechnet die 2-Minuten-Frist allein;
+    daraus entsteht genau einmal pro Abwesenheit BecameAway (CAP-9, AD-19).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Die Prüfmethode der IP (Ping oder ARP) ist in der SPEC offen und gehört hinter eine Schnittstelle mit Fake;
+    Zeit wird in Tests gesteuert.
+- id: "5"
+  title: Schreibtisch über 50 W verhindert Abwesenheit
+  description: >-
+    Zieht Steckdose 2 mehr als 50 W, gilt der Bewohner auch ohne IP als anwesend und wird nicht abwesend (CAP-9).
+  invoke_dev_with: >-
+    Offene Fragen der SPEC beachten: Verhalten bei bereits Abwesenden und bei veraltetem Leistungswert; vor der
+    Umsetzung mit dem Bewohner klären statt zu raten.
+- id: "6"
+  title: Nachhause-Kommen erkennen
+  description: >-
+    Die erste Bewegung nach der Rückkehr der IP löst genau ein HomecomingDetected aus und beendet die Abwesenheit;
+    IP allein und Bewegung bei Anwesenheit lösen nichts aus (CAP-11, AD-19).
+- id: "7"
+  title: Dunkelheit bestimmen
+  description: >-
+    Das System weiss anhand der Sonnenzeiten, ob es zwischen Sonnenuntergang und Sonnenaufgang liegt, hinter einer
+    Schnittstelle mit Fake (CAP-12).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Die Quelle ist offen: Meteomatics (Zugang, Limits, Ausfallverhalten) oder Home Assistant `sun`. Vor der
+    Umsetzung entscheiden.
+- id: "8"
+  title: Wohnung einrichten, Schreibtisch und Licht
+  description: >-
+    Beim HomecomingDetected schaltet der Outbox-Konsument SetUpHome Steckdose 2 ein und Steckdose 1 nur bei
+    Dunkelheit; jeder Geräteschritt ist ein eigener Auftrag (CAP-13, AD-19).
+- id: "9"
+  title: Wohnung einrichten, Klima bei Wärme
+  description: >-
+    Das Aggregate RoomReadings hält die letzten Werte aus ReadingsReported; beim HomecomingDetected schaltet
+    SetUpHome bei Raumtemperatur über 23.5 °C (sonst Aussentemperatur über 25 °C) die Klima mit Kühlen, iECO und
+    22 °C ein (CAP-14, AD-14, AD-17).
+  spec_checkpoint: true
+  invoke_dev_with: >-
+    Offen in der SPEC: höchstes Alter des Messwerts, was „zuverlässig“ heisst, und wie „aktuellen Status holen“
+    eine frische Messung anstösst. Klärung vor der Umsetzung.
+- id: "10"
+  title: Wohnung ausschalten
+  description: >-
+    Beim BecameAway erhalten beide Steckdosen den Zielzustand aus und das Klimagerät den Befehl ausschalten;
+    ein bereits ausgeschaltetes Gerät bleibt unverändert (CAP-15, AD-19).
+  done_checkpoint: true

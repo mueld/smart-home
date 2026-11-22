@@ -76,11 +76,11 @@ P2 enthält keine Policy: Die Regel „jede Minute“ hat nichts zu entscheiden,
 - **Zeitstempel** einer Messung ist der Zeitpunkt der Abfrage beim Klimagerät; er kommt mit der eingehenden Messung mit.
 - **Duplikate und Reihenfolge**: Eine Messung mit gleichem oder älterem Zeitpunkt der Abfrage als die letzte bekannte wird verworfen (kein Verlaufseintrag, keine Events).
 - **Eingangsschnittstelle Messung**: Das Backend definiert eine fachliche Eingangsschnittstelle „Messung empfangen“, die eine vollständige Messung (Zeitpunkt der Abfrage, Zustand, Messwerte, Fehlercode) entgegennimmt. Der MQTT-Adapter gemäss ADR 0001 ist nur eine Implementierung davon; er ist nicht Teil dieser Spec (s. Out of Scope).
-- **Veröffentlichung für andere Module** (Architecture Spine AD-8, AD-17): Die sechs abgeleiteten Events werden 1:1 als Integration Events in `Klimageraet.Contracts` über die Outbox veröffentlicht, sodass spätere Prozesse (P4, P13) Policies anhängen können, ohne das Aggregate zu kennen. Zusätzlich wird mit jeder aufgenommenen Messung `MesswerteGemeldet` (Raumtemperatur, Aussentemperatur, Zeitpunkt der Abfrage) veröffentlicht; Zuhause hält daraus den letzten Wert. Ob pro Messung oder nur bei Änderung, ist offen (siehe Further Notes). `MessungAufgenommen` bleibt modulintern.
+- **Veröffentlichung für andere Module** (Architecture Spine AD-8, AD-17): Die sechs abgeleiteten Events werden 1:1 als Integration Events in `AirConditioner.Contracts` über die Outbox veröffentlicht, sodass spätere Prozesse (P4, P13) Policies anhängen können, ohne das Aggregate zu kennen. Zusätzlich wird mit jeder aufgenommenen Messung `ReadingsReported` (Raumtemperatur, Aussentemperatur, Zeitpunkt der Abfrage) veröffentlicht; Home hält daraus den letzten Wert. Ob pro Messung oder nur bei Änderung, ist offen (siehe Further Notes). `MeasurementRecorded` bleibt modulintern.
 - **Read Model Aktueller Zustand**: letzte Messung des Klimageräts inkl. Zeitpunkt der Abfrage; per HTTP abrufbar.
 - **Read Model Verlauf**: alle Messungen, unverdichtet, nach Zeitpunkt der Abfrage geordnet; per HTTP für einen Zeitraum (von/bis) abrufbar.
 - **Persistenz**: Der Verlauf und die letzte Messung werden in PostgreSQL gespeichert (ADR 0002), angebunden über EF Core und hinter einer Schnittstelle gekapselt. Sie überleben einen Neustart. Eine normale Tabelle mit Index auf dem Zeitpunkt der Abfrage genügt; das Schema wird über EF-Core-Migrationen angelegt.
-- **Benennung im Code** gemäss ADR 0003: Fachbegriffe deutsch wie in CONTEXT.md, Umlaute als ae/oe/ue (z. B. `Klimageraet`, `MessungAufnehmen`, `MessungAufgenommen`, `SolltemperaturGeaendert`), technische Bausteine englisch.
+- **Benennung im Code** gemäss ADR 0005: Der Code ist englisch, die Code-Namen stehen in CONTEXT.md (z. B. `AirConditioner`, `RecordMeasurement`, `MeasurementRecorded`, `TargetTemperatureChanged`).
 - **Fähigkeiten** sind nicht Teil der minütlichen Messung; sie gehören zu P1.
 - Das Projekt-Template (Beispiel-Endpoint „weatherforecast“) wird entfernt.
 
@@ -91,7 +91,7 @@ P2 enthält keine Policy: Die Regel „jede Minute“ hat nichts zu entscheiden,
   - die veröffentlichten Integration Events über einen im Test registrierten Konsumenten (Zustellung durch den Outbox-Worker).
 - Das Aggregate Klimagerät wird **nicht** separat getestet; es ist ein Implementierungsdetail hinter dem Seam.
 - Gute Tests beschreiben Szenarien in Fachsprache, z. B. „Wenn zwei Messungen mit unterschiedlicher Solltemperatur eintreffen, dann wird *Solltemperatur geändert* veröffentlicht“, und prüfen keine internen Klassen oder Speicherdetails.
-- Abzudecken sind mindestens: `MesswerteGemeldet` zu jeder aufgenommenen Messung (nicht bei Duplikat oder älterer Messung); erste Messung; unveränderte Messung; je eine Änderung pro abgeleitetem Event; Änderung nur an Lüfterstufe/Display (kein Event); neuer vs. weiterhin anstehender Fehlercode; Fehlercode bei erster Messung; Duplikat und ältere Messung; Lücke im Verlauf; Verlauf nach Zeitraum; Aktueller Zustand vor der ersten Messung (leer).
+- Abzudecken sind mindestens: `ReadingsReported` zu jeder aufgenommenen Messung (nicht bei Duplikat oder älterer Messung); erste Messung; unveränderte Messung; je eine Änderung pro abgeleitetem Event; Änderung nur an Lüfterstufe/Display (kein Event); neuer vs. weiterhin anstehender Fehlercode; Fehlercode bei erster Messung; Duplikat und ältere Messung; Lücke im Verlauf; Verlauf nach Zeitraum; Aktueller Zustand vor der ersten Messung (leer).
 - Die Tests laufen gegen ein echtes PostgreSQL via Testcontainers (Docker nötig, lokal und in der CI). Neustart-Tests starten das Backend neu gegen dieselbe Datenbank.
 - **Prior Art**: keine; dies sind die ersten Tests im Repo. Das Testprojekt wird mit diesem Slice angelegt.
 
@@ -114,5 +114,5 @@ P2 enthält keine Policy: Die Regel „jede Minute“ hat nichts zu entscheiden,
 - **Hotspots für spätere Prozesse**:
   - P3: Ist „Klimagerät offline“ ein Event des Aggregates Klimagerät, obwohl es aus dem Ausbleiben einer Messung entsteht?
   - P3: Soll ein Ausfall des Hilfsdienstes bzw. von MQTT von einem nicht erreichbaren Klimagerät unterschieden werden (z. B. über ein Signal „Abfrage fehlgeschlagen“)? In P2 sehen beide gleich aus: keine Messung.
-  - P13: Wird `MesswerteGemeldet` bei jeder Messung (1/min) oder nur bei Änderung veröffentlicht? Wie stösst „aktuellen Status holen“ eine frische Messung an?
-- **Aktualisiert 2026-11-21**: Die Zeitsteuerung (P6–P8) ist entfallen; Konsumenten P7/P8 sind entfernt und `MesswerteGemeldet` für P13 ist neu (Architecture Spine AD-17). Die Hotspots zu P7/P8 sind hinfällig.
+  - P13: Wird `ReadingsReported` bei jeder Messung (1/min) oder nur bei Änderung veröffentlicht? Wie stösst „aktuellen Status holen“ eine frische Messung an?
+- **Aktualisiert 2026-11-21**: Die Zeitsteuerung (P6–P8) ist entfallen; Konsumenten P7/P8 sind entfernt und `ReadingsReported` für P13 ist neu (Architecture Spine AD-17). Die Hotspots zu P7/P8 sind hinfällig.

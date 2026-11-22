@@ -1,5 +1,7 @@
 # Fachsprache im Code: Fachliches auf Deutsch, Technisches auf Englisch
 
+Status: abgelöst durch ADR 0005 (Code auf Englisch), vorgeschlagen.
+
 Was in CONTEXT.md als Begriff steht, heisst im Code genauso, auf Deutsch. Alles andere ist Englisch: technische Bausteine, Frameworks und Muster (Repository, Controller, DbContext, Handler, Options). Zusammengesetzte Namen verbinden beides, z. B. `MessungRepository`, `KlimageraetController`.
 
 Beispiele:
