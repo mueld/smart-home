@@ -1,0 +1,36 @@
+services:
+  backend:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    stop_grace_period: 60s
+    environment:
+      TZ: Europe/Zurich
+    volumes:
+      - ./homeassistant:/config
+
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    stop_grace_period: 60s
+    environment:
+      TZ: Europe/Zurich
+    volumes:
+      - ~/homeassistant:/config
+
+  matter-server:
+    container_name: matterjs-server
+    image: ghcr.io/matter-js/matterjs-server:stable
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # Needed only for devices with test certificates (e.g. the Hombli socket).
+      # Remove this line once pairing is done and the socket still works.
+      ENABLE_TEST_NET_DCL: "true"
+    volumes:
+      - ./matter-data:/data
