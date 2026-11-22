@@ -29,7 +29,7 @@ companions:
 | Ebene | Ort | Inhalt |
 | --- | --- | --- |
 | Host | `Host` | Komposition, Minimal-API-Mapping, OTEL, globaler Exception Handler |
-| Kernel | `Kernel` | Mediator, Pipeline Behaviors, Result, Outbox, Domain-Event-Interceptor |
+| Kernel | `Kernel` | Mediator, Pipeline Behaviors, Outcome, Outbox, Domain-Event-Interceptor |
 | Modul | `Modules/<Modul>` | `Domain/`, `Features/<Feature>/`, `Infrastructure/` |
 | Modul-Vertrag | `Modules/<Modul>.Contracts` | Integration Events und Commands für synchrone Aufrufe |
 
@@ -55,7 +55,7 @@ flowchart TD
 
 - **Binds:** alle Slices
 - **Prevents:** technische Module (z. B. „Umsysteme“) und Prozesslogik im falschen Modul
-- **Rule:** Es gibt vier Module: **AirConditioner** (P1 Fähigkeiten, P2 Messung, P3 Offline-Erkennung, Befehle ans Klimagerät), **Control** (P5 manuell steuern), **Home** (P9–P14: Anwesenheit, Home-Assistant-Anbindung für Bewegungsmelder und Steckdosen, Nachhause-Kommen, Einrichten, Ausschalten) und **Notifications** (Telegram für P3/P4). P6–P8 sind entfallen. Jeder Slice gehört genau einem Modul. Ein Modul wird erst angelegt, wenn sein erster Prozess umgesetzt wird.
+- **Rule:** Es gibt vier Module: **AirConditioner** (P1 Fähigkeiten, P2 Messung, P3 Offline-Erkennung, Befehle ans Klimagerät), **Control** (P5 manuell steuern), **Home** (P9–P14: Anwesenheit, Home-Assistant-Anbindung für Bewegungsmelder und Steckdosen, Nachhause-Kommen, Einrichten, Ausschalten) und **Notifications** (Telegram für P3/P4). P6–P8 sind entfallen. Jeder Slice gehört genau einem Modul. Die Modul-Projekte (`Backend.Modules.<Modul>`, Vertrag `Backend.Modules.AirConditioner.Contracts`) liegen seit 2026-11-22 als leere Gerüste in der Solution; Inhalt entsteht erst mit dem ersten Prozess des Moduls.
 
 ### AD-2 — Abhängigkeiten zwischen Modulen [ADOPTED]
 
@@ -79,7 +79,7 @@ flowchart TD
 
 - **Binds:** alle Commands und Queries
 - **Prevents:** Lizenzabhängigkeit und abweichende Pipeline-Reihenfolgen
-- **Rule:** Der Mediator ist selbst gebaut (`Kernel`). Die Pipeline für Commands lautet: **Validation → Transaction → Handler**. Validatoren sind FluentValidation-Validatoren im Feature-Ordner. Schlägt die Validation fehl, wird keine Transaktion gestartet; sie liefert einen `ValidationError`. Das Transaction Behavior löst anhand des Commands den DbContext des zuständigen Moduls auf und startet eine Transaktion oder übernimmt die bestehende (AD-14).
+- **Rule:** Der Mediator ist selbst gebaut (`Kernel`). Die Pipeline für Commands lautet: **Validation → Transaction → Handler**. Validatoren sind FluentValidation-Validatoren im Feature-Ordner. Schlägt die Validation fehl, wird keine Transaktion gestartet; sie liefert `ValidationFailed` als `Outcome`. Das Transaction Behavior löst anhand des Commands den DbContext des zuständigen Moduls auf und startet eine Transaktion oder übernimmt die bestehende (AD-14).
 
 ### AD-6 — Ablauf eines Commands und Domain Events [ADOPTED]
 
@@ -127,8 +127,8 @@ sequenceDiagram
 ### AD-10 — Fehlerbehandlung [ADOPTED]
 
 - **Binds:** alle Handler und Endpoints
-- **Prevents:** vergessene Fehlertypen und eigene Fehlercodes pro Slice
-- **Rule:** Erwartete Fehler sind ein eigener `Result`-Typ (`Kernel`), dessen Fehlerfälle eine C# 15 Union sind: `ValidationError` (inkl. verletzter Fachregeln) und `NotFoundError`. Eine zentrale Extension Method bildet sie mit einer **exhaustiven switch expression** (ohne Discard) auf `ProblemDetails` ab: `ValidationError` → 400, `NotFoundError` → 404. Die Warnungen CS8509 und CS8655 sind Fehler (`WarningsAsErrors`), und jede switch expression über eine Union hat einen expliziten `null`-Arm. Alles Unerwartete, auch transiente Fehler, ist eine Exception und landet beim globalen Exception Handler (500). Exceptions aus `mediator.Send` werden in Handlern nie abgefangen.
+- **Prevents:** vergessene Fehlerfälle am Endpoint, Domain-Fehler, die der Use Case nicht übernimmt, Discard-Arme und ein gemeinsamer Fehlerkatalog über alle Use Cases
+- **Rule:** Das Result-Muster ist der Typ `Outcome<T, TError>` (`Kernel`, `Backend.Kernel`), eine C# 15 Union aus Erfolg `T`, einem erwarteten Fehler `TError` und `ValidationFailed` (Pipeline, 400). **Jeder Use Case definiert seine eigene Fehler-Union** als `TError` (z. B. `NotFound`, `AlreadyExists`), mit nur den Fehlern, die dieser Use Case tatsächlich liefert. Der Endpoint muss sie explizit behandeln: eine **exhaustive switch expression** (ohne Discard) über den `Outcome`, die jeden Fehlerfall dieses Use Cases auf einen HTTP-Status mit `ProblemDetails` abbildet. **Auch die Domain definiert ihre Fehler** (je Aggregate-Operation eine Fehler-Union, z. B. `AlreadyAway`; verletzte Fachregeln sind Domain-Fehler, keine Exceptions). Der Use Case muss sie in seine eigene Fehler-Union übernehmen, entweder unverändert als Fall oder explizit übersetzt; er reicht keine Domain-Union ungeprüft durch, und kein Domain-Fehler erreicht den Endpoint am Use Case vorbei. Die Domain kennt weder `ValidationFailed` noch HTTP. Es gibt keine zentrale Abbildung aller Fehler und keinen gemeinsamen Fehlerkatalog; eine Hilfsfunktion nur für `ValidationFailed` → 400 ist erlaubt. Ein neuer Fehlerfall im Use Case bricht den Build, bis der Endpoint ihn behandelt. Die Warnungen CS8509 und CS8655 sind Fehler (`WarningsAsErrors`), und jede switch expression über eine Union hat einen expliziten `null`-Arm. Alles Unerwartete, auch transiente Fehler, ist eine Exception und landet beim globalen Exception Handler (500). Exceptions aus `mediator.Send` werden in Handlern nie abgefangen.
 
 ### AD-11 — Zeit [ADOPTED]
 
@@ -152,7 +152,7 @@ sequenceDiagram
 
 - **Binds:** alle Commands aus `<Modul>.Contracts`, das Transaction Behavior, alle Modul-DbContexts
 - **Prevents:** halb ausgeführte modulübergreifende Commands; parallele, voneinander unabhängige Transaktionen pro DbContext
-- **Rule:** Ein Command aus einem fremden `<Modul>.Contracts` darf aus einem Endpoint, einem Command-Handler, einem Outbox-Konsumenten oder einem Zeit-Trigger aufgerufen werden – nicht aus einem Domain-Event-Handler (AD-6). Er läuft über den Mediator durch die volle Pipeline. Das Transaction Behavior löst den DbContext des Moduls auf, dem der Command gehört; läuft bereits eine Transaktion, tritt dieser DbContext ihr über dieselbe Datenbankverbindung bei, sonst startet es eine neue. Alle Modul-DbContexts eines Scopes teilen deshalb eine Verbindung: eine scoped `NpgsqlConnection`, die jedem DbContext per `UseNpgsql(DbConnection)` übergeben wird; beigetreten wird per `UseTransactionAsync`. Eine Retrying Execution Strategy wird nicht verwendet. Nur das äusserste Transaction Behavior committet (bei Erfolg) oder rollt zurück (bei Fehler-Result oder Exception); ein beigetretenes committet nie selbst. Ein beigetretenes Behavior setzt vor dem Handler einen Savepoint und rollt bei Fehler-Result oder Exception darauf zurück. Contract-Commands sind azyklisch: heute Control → AirConditioner und Home → AirConditioner; AirConditioner meldet sich bei Control und Home nur über Integration Events. Das Transaction Behavior verweigert den erneuten Eintritt in einen DbContext, der im Scope bereits einen Command ausführt.
+- **Rule:** Ein Command aus einem fremden `<Modul>.Contracts` darf aus einem Endpoint, einem Command-Handler, einem Outbox-Konsumenten oder einem Zeit-Trigger aufgerufen werden – nicht aus einem Domain-Event-Handler (AD-6). Er läuft über den Mediator durch die volle Pipeline. Das Transaction Behavior löst den DbContext des Moduls auf, dem der Command gehört; läuft bereits eine Transaktion, tritt dieser DbContext ihr über dieselbe Datenbankverbindung bei, sonst startet es eine neue. Alle Modul-DbContexts eines Scopes teilen deshalb eine Verbindung: eine scoped `NpgsqlConnection`, die jedem DbContext per `UseNpgsql(DbConnection)` übergeben wird; beigetreten wird per `UseTransactionAsync`. Eine Retrying Execution Strategy wird nicht verwendet. Nur das äusserste Transaction Behavior committet (bei Erfolg) oder rollt zurück (bei Fehler-Outcome oder Exception); ein beigetretenes committet nie selbst. Ein beigetretenes Behavior setzt vor dem Handler einen Savepoint und rollt bei Fehler-Outcome oder Exception darauf zurück. Contract-Commands sind azyklisch: heute Control → AirConditioner und Home → AirConditioner; AirConditioner meldet sich bei Control und Home nur über Integration Events. Das Transaction Behavior verweigert den erneuten Eintritt in einen DbContext, der im Scope bereits einen Command ausführt.
 
 ```mermaid
 sequenceDiagram
@@ -165,9 +165,9 @@ sequenceDiagram
     HS->>TK: SetTargetTemperature (AirConditioner.Contracts)
     TK->>TK: DbContext AirConditioner tritt Transaktion auf V bei
     TK->>HK: Command
-    HK-->>TK: Result
-    TK-->>HS: Result (kein Commit)
-    HS-->>TS: Result
+    HK-->>TK: Outcome
+    TK-->>HS: Outcome (kein Commit)
+    HS-->>TS: Outcome
     TS->>TS: Commit oder Rollback
 ```
 
@@ -199,7 +199,7 @@ sequenceDiagram
 
 - **Binds:** P9–P14
 - **Prevents:** Einrichten oder Ausschalten als Domain-Event-Handler mit Aufrufen an fremde Module; mehrere Wahrheiten über die Anwesenheit
-- **Rule:** Das Aggregate `Presence` hat die Zustände `Present`, `Away` und `Returned` (IP wieder da, Bewegung steht aus) und wird beim ersten Command angelegt. Es ändert sich nur durch die Commands `RecordIpPresence`, `RecordMotion` und `RecordPower`. Die 2-Minuten-Frist rechnet allein das Aggregate: Der IP-Trigger sendet bei jeder Prüfung (erreichbar ja oder nein, Zeitpunkt der Prüfung), nie nur Flanken; Bewegung und Leistung tragen ihren fachlichen Zeitpunkt. Daraus entstehen die Domain Events `HomecomingDetected` und `BecameAway`; ihr Handler schreibt je ein Integration Event in die Outbox von Home. `SetUpHome` und `ShutDownHome` laufen als Outbox-Konsumenten dieser Events (eigener Scope, eigene Transaktion), schalten Steckdosen über die Outbox (AD-18) und senden das Klimagerät über Commands aus `AirConditioner.Contracts` (AD-14), nie aus einem Domain-Event-Handler (AD-6). Jeder Geräteschritt von `SetUpHome` und `ShutDownHome` (Schreibtisch, Licht, Klima) ist ein eigener Auftrag bzw. Command; ein Fehler-Result eines Schritts verhindert die übrigen nicht und führt nicht zu endloser Neuzustellung. Die letzte Raum- und Aussentemperatur hält das eigene Aggregate `RoomReadings`, nicht `Presence`; ein Konsument von `ReadingsReported` schreibt es. Die Events sind modulintern; `Home.Contracts` entsteht erst, wenn ein anderes Modul sie braucht.
+- **Rule:** Das Aggregate `Presence` hat die Zustände `Present`, `Away` und `Returned` (IP wieder da, Bewegung steht aus) und wird beim ersten Command angelegt. Es ändert sich nur durch die Commands `RecordIpPresence`, `RecordMotion` und `RecordPower`. Die 2-Minuten-Frist rechnet allein das Aggregate: Der IP-Trigger sendet bei jeder Prüfung (erreichbar ja oder nein, Zeitpunkt der Prüfung), nie nur Flanken; Bewegung und Leistung tragen ihren fachlichen Zeitpunkt. Daraus entstehen die Domain Events `HomecomingDetected` und `BecameAway`; ihr Handler schreibt je ein Integration Event in die Outbox von Home. `SetUpHome` und `ShutDownHome` laufen als Outbox-Konsumenten dieser Events (eigener Scope, eigene Transaktion), schalten Steckdosen über die Outbox (AD-18) und senden das Klimagerät über Commands aus `AirConditioner.Contracts` (AD-14), nie aus einem Domain-Event-Handler (AD-6). Jeder Geräteschritt von `SetUpHome` und `ShutDownHome` (Schreibtisch, Licht, Klima) ist ein eigener Auftrag bzw. Command; ein Fehler-Outcome eines Schritts verhindert die übrigen nicht und führt nicht zu endloser Neuzustellung. Die letzte Raum- und Aussentemperatur hält das eigene Aggregate `RoomReadings`, nicht `Presence`; ein Konsument von `ReadingsReported` schreibt es. Die Events sind modulintern; `Home.Contracts` entsteht erst, wenn ein anderes Modul sie braucht.
 
 ## Consistency Conventions
 
@@ -236,10 +236,12 @@ sequenceDiagram
 Backend/
   src/
     Host/                         # Program, Komposition, Endpoint-Mapping, OTEL, Exception Handler
-    Kernel/                       # Mediator, Behaviors, Result, Outbox, Interceptor
+    Kernel/                       # Mediator, Behaviors, Outcome, Outbox, Interceptor
     Modules/
       AirConditioner/                # Domain/, Features/<Feature>/, Infrastructure/ (DbContext, MQTT)
       AirConditioner.Contracts/      # Integration Events, Commands für synchrone Aufrufe
+      Control/                       # Features/<Feature>/ (P5)
+      Notifications/                 # Features/<Feature>/, Infrastructure/ (Telegram-Adapter)
       Home/                    # Domain/, Features/<Feature>/, Infrastructure/ (DbContext, Home-Assistant-Adapter); entsteht mit P9
   tests/
     Backend.Tests/                # Seam-Tests an der Backend-Grenze

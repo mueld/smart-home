@@ -1,6 +1,16 @@
 <Solution>
-  <Folder Name="/tests/">
-    <Project Path="Backend.Tests/Backend.Tests.csproj" Id="6f484ab5-9a5d-43be-b8b0-7cd007d2515d" />
+  <Folder Name="/src/">
+    <Project Path="src/Host/Backend.Host.csproj" />
+    <Project Path="src/Kernel/Backend.Kernel.csproj" />
   </Folder>
-  <Project Path="Backend/Backend.csproj" />
+  <Folder Name="/src/Modules/">
+    <Project Path="src/Modules/AirConditioner.Contracts/Backend.Modules.AirConditioner.Contracts.csproj" />
+    <Project Path="src/Modules/AirConditioner/Backend.Modules.AirConditioner.csproj" />
+    <Project Path="src/Modules/Control/Backend.Modules.Control.csproj" />
+    <Project Path="src/Modules/Home/Backend.Modules.Home.csproj" />
+    <Project Path="src/Modules/Notifications/Backend.Modules.Notifications.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Backend.Tests/Backend.Tests.csproj" Id="6f484ab5-9a5d-43be-b8b0-7cd007d2515d" />
+  </Folder>
 </Solution>

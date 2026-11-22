@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Backend.Modules.AirConditioner</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Kernel\Backend.Kernel.csproj" />
+    <ProjectReference Include="..\AirConditioner.Contracts\Backend.Modules.AirConditioner.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

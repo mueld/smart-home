@@ -25,7 +25,7 @@ sources: []
 
 - **CAP-1**
   - **intent:** Das System kennt die Fähigkeiten des Klimageräts (z. B. Eco, Swing, Lüfterstufen), indem es sie vom Gerät erfragt statt sie anzunehmen.
-  - **success:** Nach dem Start sind die vom Gerät gemeldeten Fähigkeiten abrufbar; eine nicht unterstützte Einstellung wird bei Befehlen als `ValidationError` abgelehnt.
+  - **success:** Nach dem Start sind die vom Gerät gemeldeten Fähigkeiten abrufbar; eine nicht unterstützte Einstellung wird bei Befehlen als `ValidationFailed` abgelehnt.
 - **CAP-2**
   - **intent:** Der Bewohner sieht den Aktuellen Zustand und den Verlauf des Klimageräts; jede Minute wird eine Messung aufgenommen und fachlich relevante Änderungen werden anderen Modulen gemeldet.
   - **success:** Alle Akzeptanzszenarien der Spec P2 sind durch Tests an der Backend-Grenze grün.

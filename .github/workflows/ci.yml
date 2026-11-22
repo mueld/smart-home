@@ -63,7 +63,7 @@ jobs:
       # Baut das Image über dotnet publish (Container-Support des SDK), aber pusht nichts.
       - name: Backend-Image bauen (ohne Push)
         run: >
-          dotnet publish Backend/Backend.csproj -c Release
+          dotnet publish src/Host/Backend.Host.csproj -c Release
           --os linux --arch arm64
           -t:PublishContainer
           -p:ContainerRepository=${{ env.IMAGE_NAME }}
@@ -90,7 +90,7 @@ jobs:
           SDK_CONTAINER_REGISTRY_PWORD: ${{ secrets.GITHUB_TOKEN }}
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"
-          dotnet publish Backend/Backend.csproj -c Release \
+          dotnet publish src/Host/Backend.Host.csproj -c Release \
             --os linux --arch arm64 \
             -t:PublishContainer \
             -p:ContainerRegistry=ghcr.io \
