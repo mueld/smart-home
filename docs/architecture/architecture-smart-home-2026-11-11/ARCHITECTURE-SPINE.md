@@ -37,15 +37,15 @@ companions:
 
 ```mermaid
 flowchart TD
-    Host --> K[Klimageraet]
-    Host --> S[Steuerung]
-    Host --> B[Benachrichtigung]
-    Host --> Z[Zuhause]
+    Host --> K[AirConditioner]
+    Host --> S[Control]
+    Host --> B[Notifications]
+    Host --> Z[Home]
     K --> KN[Kernel]
     S --> KN
     B --> KN
     Z --> KN
-    S --> KC[Klimageraet.Contracts]
+    S --> KC[AirConditioner.Contracts]
     B --> KC
     Z --> KC
     KC --> KN
@@ -55,7 +55,7 @@ flowchart TD
 
 - **Binds:** alle Slices
 - **Prevents:** technische Module (z. B. „Umsysteme“) und Prozesslogik im falschen Modul
-- **Rule:** Es gibt vier Module: **Klimageraet** (P1 Fähigkeiten, P2 Messung, P3 Offline-Erkennung, Befehle ans Klimagerät), **Steuerung** (P5 manuell steuern), **Zuhause** (P9–P14: Anwesenheit, Home-Assistant-Anbindung für Bewegungsmelder und Steckdosen, Nachhause-Kommen, Einrichten, Ausschalten) und **Benachrichtigung** (Telegram für P3/P4). P6–P8 sind entfallen. Jeder Slice gehört genau einem Modul. Ein Modul wird erst angelegt, wenn sein erster Prozess umgesetzt wird.
+- **Rule:** Es gibt vier Module: **AirConditioner** (P1 Fähigkeiten, P2 Messung, P3 Offline-Erkennung, Befehle ans Klimagerät), **Control** (P5 manuell steuern), **Home** (P9–P14: Anwesenheit, Home-Assistant-Anbindung für Bewegungsmelder und Steckdosen, Nachhause-Kommen, Einrichten, Ausschalten) und **Notifications** (Telegram für P3/P4). P6–P8 sind entfallen. Jeder Slice gehört genau einem Modul. Ein Modul wird erst angelegt, wenn sein erster Prozess umgesetzt wird.
 
 ### AD-2 — Abhängigkeiten zwischen Modulen [ADOPTED]
 
@@ -118,11 +118,11 @@ sequenceDiagram
 - **Prevents:** Nachrichten oder Befehle, die trotz Rollback hinausgehen; lange offene Transaktionen
 - **Rule:** Integration Events und Aufträge an Umsysteme werden in der Transaktion in die Outbox-Tabelle des eigenen Modul-Schemas geschrieben. Ein Background Worker stellt sie nach dem Commit zu – Integration Events über den Mediator an die Handler anderer Module und an eigene Konsumenten des Moduls (AD-19), die in einer eigenen Transaktion laufen. Die Zustellung ist **at-least-once**, FIFO pro Ziel (Konsument bzw. Umsystem) und sequenziell; ein Ausfall eines Ziels, z. B. Home Assistant, blockiert die Zustellung an andere Ziele nicht. Jedes Modul mit Konsumenten hat eine Inbox-Tabelle in seinem Schema: Der Konsument schreibt (`EventId`, Konsument) in derselben Transaktion wie seinen Command; ist der Eintrag schon vorhanden, wird das Event übersprungen. Aufrufe an Umsysteme (Telegram, Home Assistant) bleiben at-least-once; eine doppelte Nachricht wird in Kauf genommen, ein doppelter Schaltbefehl ändert nichts (Zielzustand, AD-9). Jedes Integration Event trägt eine `EventId` (GUID v7) und den fachlichen Zeitpunkt, auf den sich Konsumenten stützen – nie auf den Zeitpunkt der Verarbeitung. Ein Konsument übersetzt ein Integration Event in genau einen Command des eigenen Moduls. Der Worker stellt pro Konsument in einem eigenen DI-Scope ohne laufende Transaktion zu.
 
-### AD-9 — Gerätezugriff: MQTT nur in Klimageraet, Home Assistant nur in Zuhause [ADOPTED]
+### AD-9 — Gerätezugriff: MQTT nur in AirConditioner, Home Assistant nur in Home [ADOPTED]
 
 - **Binds:** MQTT- und Home-Assistant-Anbindung
 - **Prevents:** mehrere Module mit eigenem MQTT- oder Home-Assistant-Zugriff
-- **Rule:** Nur das Modul Klimageraet spricht MQTT; nur das Modul Zuhause spricht Home Assistant (AD-18). Eingehende Messungen werden zum Command `MessungAufnehmen`. Andere Module senden Befehle ans Klimagerät als Command aus `Klimageraet.Contracts`; Klimageraet schreibt sie in seine Outbox und sendet sie per MQTT. Befehle beschreiben immer einen Zielzustand (z. B. „Solltemperatur 22 °C“), nie ein Umschalten, damit eine doppelte Zustellung nichts ändert. Der Zustand des Aggregates Klimageraet ändert sich nur durch `MessungAufnehmen`; ein Befehl erzeugt nur einen Outbox-Auftrag. Schreibende Endpoints für das Klimagerät (z. B. P5) liegen nur im Modul Steuerung.
+- **Rule:** Nur das Modul AirConditioner spricht MQTT; nur das Modul Home spricht Home Assistant (AD-18). Eingehende Messungen werden zum Command `RecordMeasurement`. Andere Module senden Befehle ans Klimagerät als Command aus `AirConditioner.Contracts`; AirConditioner schreibt sie in seine Outbox und sendet sie per MQTT. Befehle beschreiben immer einen Zielzustand (z. B. „Solltemperatur 22 °C“), nie ein Umschalten, damit eine doppelte Zustellung nichts ändert. Der Zustand des Aggregates AirConditioner ändert sich nur durch `RecordMeasurement`; ein Befehl erzeugt nur einen Outbox-Auftrag. Schreibende Endpoints für das Klimagerät (z. B. P5) liegen nur im Modul Control.
 
 ### AD-10 — Fehlerbehandlung [ADOPTED]
 
@@ -152,18 +152,18 @@ sequenceDiagram
 
 - **Binds:** alle Commands aus `<Modul>.Contracts`, das Transaction Behavior, alle Modul-DbContexts
 - **Prevents:** halb ausgeführte modulübergreifende Commands; parallele, voneinander unabhängige Transaktionen pro DbContext
-- **Rule:** Ein Command aus einem fremden `<Modul>.Contracts` darf aus einem Endpoint, einem Command-Handler, einem Outbox-Konsumenten oder einem Zeit-Trigger aufgerufen werden – nicht aus einem Domain-Event-Handler (AD-6). Er läuft über den Mediator durch die volle Pipeline. Das Transaction Behavior löst den DbContext des Moduls auf, dem der Command gehört; läuft bereits eine Transaktion, tritt dieser DbContext ihr über dieselbe Datenbankverbindung bei, sonst startet es eine neue. Alle Modul-DbContexts eines Scopes teilen deshalb eine Verbindung: eine scoped `NpgsqlConnection`, die jedem DbContext per `UseNpgsql(DbConnection)` übergeben wird; beigetreten wird per `UseTransactionAsync`. Eine Retrying Execution Strategy wird nicht verwendet. Nur das äusserste Transaction Behavior committet (bei Erfolg) oder rollt zurück (bei Fehler-Result oder Exception); ein beigetretenes committet nie selbst. Ein beigetretenes Behavior setzt vor dem Handler einen Savepoint und rollt bei Fehler-Result oder Exception darauf zurück. Contract-Commands sind azyklisch: heute Steuerung → Klimageraet und Zuhause → Klimageraet; Klimageraet meldet sich bei Steuerung und Zuhause nur über Integration Events. Das Transaction Behavior verweigert den erneuten Eintritt in einen DbContext, der im Scope bereits einen Command ausführt.
+- **Rule:** Ein Command aus einem fremden `<Modul>.Contracts` darf aus einem Endpoint, einem Command-Handler, einem Outbox-Konsumenten oder einem Zeit-Trigger aufgerufen werden – nicht aus einem Domain-Event-Handler (AD-6). Er läuft über den Mediator durch die volle Pipeline. Das Transaction Behavior löst den DbContext des Moduls auf, dem der Command gehört; läuft bereits eine Transaktion, tritt dieser DbContext ihr über dieselbe Datenbankverbindung bei, sonst startet es eine neue. Alle Modul-DbContexts eines Scopes teilen deshalb eine Verbindung: eine scoped `NpgsqlConnection`, die jedem DbContext per `UseNpgsql(DbConnection)` übergeben wird; beigetreten wird per `UseTransactionAsync`. Eine Retrying Execution Strategy wird nicht verwendet. Nur das äusserste Transaction Behavior committet (bei Erfolg) oder rollt zurück (bei Fehler-Result oder Exception); ein beigetretenes committet nie selbst. Ein beigetretenes Behavior setzt vor dem Handler einen Savepoint und rollt bei Fehler-Result oder Exception darauf zurück. Contract-Commands sind azyklisch: heute Control → AirConditioner und Home → AirConditioner; AirConditioner meldet sich bei Control und Home nur über Integration Events. Das Transaction Behavior verweigert den erneuten Eintritt in einen DbContext, der im Scope bereits einen Command ausführt.
 
 ```mermaid
 sequenceDiagram
-    participant TS as Transaction Behavior (Steuerung)
-    participant HS as Handler Steuerung
-    participant TK as Transaction Behavior (Klimageraet)
-    participant HK as Handler Klimageraet
+    participant TS as Transaction Behavior (Control)
+    participant HS as Handler Control
+    participant TK as Transaction Behavior (AirConditioner)
+    participant HK as Handler AirConditioner
     TS->>TS: Transaktion starten (Verbindung V)
     TS->>HS: Command
-    HS->>TK: SolltemperaturSetzen (Klimageraet.Contracts)
-    TK->>TK: DbContext Klimageraet tritt Transaktion auf V bei
+    HS->>TK: SetTargetTemperature (AirConditioner.Contracts)
+    TK->>TK: DbContext AirConditioner tritt Transaktion auf V bei
     TK->>HK: Command
     HK-->>TK: Result
     TK-->>HS: Result (kein Commit)
@@ -175,38 +175,38 @@ sequenceDiagram
 
 - **Binds:** HTTP-Endpoints, MQTT-Eingang, Home-Assistant-Ereignisse, Zeit-Trigger (z. B. Prüfung der IP-Präsenz), Outbox-Konsumenten
 - **Prevents:** Fachlogik ausserhalb von Handlern; Einstiege, die den DI-Scope oder eine fremde Transaktion teilen
-- **Rule:** Jeder Einstiegspunkt erzeugt einen eigenen DI-Scope und sendet genau einen Command bzw. eine Query über den Mediator; er enthält keine Fachlogik. Die Eingangsschnittstelle „Messung empfangen“ (Spec P2) ist eine Schnittstelle im Modul Klimageraet; der MQTT-Adapter implementiert sie.
+- **Rule:** Jeder Einstiegspunkt erzeugt einen eigenen DI-Scope und sendet genau einen Command bzw. eine Query über den Mediator; er enthält keine Fachlogik. Die Eingangsschnittstelle „Messung empfangen“ (Spec P2) ist eine Schnittstelle im Modul AirConditioner; der MQTT-Adapter implementiert sie.
 
 ### AD-16 — Nebenläufigkeit
 
 - **Binds:** alle Aggregates
 - **Prevents:** verlorene Updates bei parallelen Commands auf dasselbe Aggregate
-- **Rule:** Jedes Aggregate hat ein Concurrency Token (PostgreSQL `xmin`). Ein Konflikt ist eine Exception (AD-10); Outbox-Konsumenten werden vom Worker erneut zugestellt. Einstiegspunkte von Zuhause (IP-Prüfung, Home-Assistant-Ereignisse) wiederholen ihren Command bei einem Konflikt, höchstens dreimal, und verarbeiten Ereignisse pro Aggregate sequenziell; sonst ginge z. B. die erste Bewegung nach der Abwesenheit verloren.
+- **Rule:** Jedes Aggregate hat ein Concurrency Token (PostgreSQL `xmin`). Ein Konflikt ist eine Exception (AD-10); Outbox-Konsumenten werden vom Worker erneut zugestellt. Einstiegspunkte von Home (IP-Prüfung, Home-Assistant-Ereignisse) wiederholen ihren Command bei einem Konflikt, höchstens dreimal, und verarbeiten Ereignisse pro Aggregate sequenziell; sonst ginge z. B. die erste Bewegung nach der Abwesenheit verloren.
 
-### AD-17 — Veröffentlichte Events des Moduls Klimageraet
+### AD-17 — Veröffentlichte Events des Moduls AirConditioner
 
-- **Binds:** P2 und alle Konsumenten in Zuhause und Benachrichtigung; Spec P2
+- **Binds:** P2 und alle Konsumenten in Home und Notifications; Spec P2
 - **Prevents:** fremde Module, die an Domain Events hängen; uneinheitliche Event-Formen
-- **Rule:** Klimageraet veröffentlicht die abgeleiteten Events `SolltemperaturGeaendert`, `ModusGeaendert`, `Eingeschaltet`, `Ausgeschaltet`, `SelbstreinigungGestartet` und `FehlercodeGemeldet` 1:1 als Integration Events in `Klimageraet.Contracts` über die Outbox. `MessungAufgenommen` bleibt modulintern. Zusätzlich veröffentlicht es [ASSUMPTION: pro Messung, vom Bewohner nicht bestätigt] mit jeder Messung `MesswerteGemeldet` (Raumtemperatur, Aussentemperatur, fachlicher Zeitpunkt); Zuhause hält daraus den letzten Wert für die Warm-Prüfung (CAP-14).
+- **Rule:** AirConditioner veröffentlicht die abgeleiteten Events `TargetTemperatureChanged`, `ModeChanged`, `TurnedOn`, `TurnedOff`, `SelfCleanStarted` und `ErrorCodeReported` 1:1 als Integration Events in `AirConditioner.Contracts` über die Outbox. `MeasurementRecorded` bleibt modulintern. Zusätzlich veröffentlicht es [ASSUMPTION: pro Messung, vom Bewohner nicht bestätigt] mit jeder Messung `ReadingsReported` (Raumtemperatur, Aussentemperatur, fachlicher Zeitpunkt); Home hält daraus den letzten Wert für die Warm-Prüfung (CAP-14).
 
 ### AD-18 — Home Assistant als Gateway für Matter-Geräte [ADR 0004, vorgeschlagen]
 
-- **Binds:** alle Slices in Zuhause, die Bewegungsmelder oder Steckdosen lesen oder schalten
+- **Binds:** alle Slices in Home, die Bewegungsmelder oder Steckdosen lesen oder schalten
 - **Prevents:** Fachlogik in Home-Assistant-Automationen, Matter- oder Home-Assistant-Zugriff in mehreren Modulen, Entity-IDs im Code
-- **Rule:** Nur das Modul Zuhause spricht Home Assistant über die WebSocket-API; Home Assistant bindet Matter über einen Matter Server ein, der bei einer Container-Installation ein eigener Container im Compose ist (Host-Netzwerk, WebSocket-Port 5580). Eingehende Zustandsänderungen (Bewegung am Eingang, Leistung der Steckdosen) werden zu Commands von Zuhause (`BewegungAufnehmen`, `LeistungAufnehmen`). Schaltbefehle an Steckdosen sind Outbox-Aufträge mit Zielzustand (AD-8, AD-9). Home-Assistant-Automationen enthalten keine Fachlogik. Geräte und Entity-IDs sind Konfiguration (Options-Pattern), das Token ein Secret aus der Umgebung; der Adapter liegt hinter einer Schnittstelle, Tests setzen einen Fake ein. Verbindungsvertrag: Home Assistant liefert Events nur im Prozess an die laufende Verbindung (ein Listener pro Abo, begrenzte Ausgangs-Queue; läuft sie voll, trennt Home Assistant), ohne Replay, also höchstens einmal. Der Adapter abonniert schmal (`subscribe_trigger` oder `subscribe_entities` für die konfigurierten Entitäten statt aller `state_changed`), baut nach jedem Verbindungsaufbau Auth und Abos neu auf (Reconnect mit Backoff) und liest danach den Zustand per `get_states` neu ein, bevor er Commands sendet. Das Token-Konto braucht Admin-Rechte, wenn der Adapter `subscribe_events` nutzt.
+- **Rule:** Nur das Modul Home spricht Home Assistant über die WebSocket-API; Home Assistant bindet Matter über einen Matter Server ein, der bei einer Container-Installation ein eigener Container im Compose ist (Host-Netzwerk, WebSocket-Port 5580). Eingehende Zustandsänderungen (Bewegung am Eingang, Leistung der Steckdosen) werden zu Commands von Home (`RecordMotion`, `RecordPower`). Schaltbefehle an Steckdosen sind Outbox-Aufträge mit Zielzustand (AD-8, AD-9). Home-Assistant-Automationen enthalten keine Fachlogik. Geräte und Entity-IDs sind Konfiguration (Options-Pattern), das Token ein Secret aus der Umgebung; der Adapter liegt hinter einer Schnittstelle, Tests setzen einen Fake ein. Verbindungsvertrag: Home Assistant liefert Events nur im Prozess an die laufende Verbindung (ein Listener pro Abo, begrenzte Ausgangs-Queue; läuft sie voll, trennt Home Assistant), ohne Replay, also höchstens einmal. Der Adapter abonniert schmal (`subscribe_trigger` oder `subscribe_entities` für die konfigurierten Entitäten statt aller `state_changed`), baut nach jedem Verbindungsaufbau Auth und Abos neu auf (Reconnect mit Backoff) und liest danach den Zustand per `get_states` neu ein, bevor er Commands sendet. Das Token-Konto braucht Admin-Rechte, wenn der Adapter `subscribe_events` nutzt.
 
-### AD-19 — Anwesenheit und Reaktionen im Modul Zuhause
+### AD-19 — Anwesenheit und Reaktionen im Modul Home
 
 - **Binds:** P9–P14
 - **Prevents:** Einrichten oder Ausschalten als Domain-Event-Handler mit Aufrufen an fremde Module; mehrere Wahrheiten über die Anwesenheit
-- **Rule:** Das Aggregate `Anwesenheit` hat die Zustände `Anwesend`, `Abwesend` und `Zurueck` (IP wieder da, Bewegung steht aus) und wird beim ersten Command angelegt. Es ändert sich nur durch die Commands `IpPraesenzAufnehmen`, `BewegungAufnehmen` und `LeistungAufnehmen`. Die 2-Minuten-Frist rechnet allein das Aggregate: Der IP-Trigger sendet bei jeder Prüfung (erreichbar ja oder nein, Zeitpunkt der Prüfung), nie nur Flanken; Bewegung und Leistung tragen ihren fachlichen Zeitpunkt. Daraus entstehen die Domain Events `NachhauseGekommen` und `AbwesendGeworden`; ihr Handler schreibt je ein Integration Event in die Outbox von Zuhause. `Einrichten` und `Ausschalten` laufen als Outbox-Konsumenten dieser Events (eigener Scope, eigene Transaktion), schalten Steckdosen über die Outbox (AD-18) und senden das Klimagerät über Commands aus `Klimageraet.Contracts` (AD-14), nie aus einem Domain-Event-Handler (AD-6). Jeder Geräteschritt von `Einrichten` und `Ausschalten` (Schreibtisch, Licht, Klima) ist ein eigener Auftrag bzw. Command; ein Fehler-Result eines Schritts verhindert die übrigen nicht und führt nicht zu endloser Neuzustellung. Die letzte Raum- und Aussentemperatur hält das eigene Aggregate `Raumwerte`, nicht `Anwesenheit`; ein Konsument von `MesswerteGemeldet` schreibt es. Die Events sind modulintern; `Zuhause.Contracts` entsteht erst, wenn ein anderes Modul sie braucht.
+- **Rule:** Das Aggregate `Presence` hat die Zustände `Present`, `Away` und `Returned` (IP wieder da, Bewegung steht aus) und wird beim ersten Command angelegt. Es ändert sich nur durch die Commands `RecordIpPresence`, `RecordMotion` und `RecordPower`. Die 2-Minuten-Frist rechnet allein das Aggregate: Der IP-Trigger sendet bei jeder Prüfung (erreichbar ja oder nein, Zeitpunkt der Prüfung), nie nur Flanken; Bewegung und Leistung tragen ihren fachlichen Zeitpunkt. Daraus entstehen die Domain Events `HomecomingDetected` und `BecameAway`; ihr Handler schreibt je ein Integration Event in die Outbox von Home. `SetUpHome` und `ShutDownHome` laufen als Outbox-Konsumenten dieser Events (eigener Scope, eigene Transaktion), schalten Steckdosen über die Outbox (AD-18) und senden das Klimagerät über Commands aus `AirConditioner.Contracts` (AD-14), nie aus einem Domain-Event-Handler (AD-6). Jeder Geräteschritt von `SetUpHome` und `ShutDownHome` (Schreibtisch, Licht, Klima) ist ein eigener Auftrag bzw. Command; ein Fehler-Result eines Schritts verhindert die übrigen nicht und führt nicht zu endloser Neuzustellung. Die letzte Raum- und Aussentemperatur hält das eigene Aggregate `RoomReadings`, nicht `Presence`; ein Konsument von `ReadingsReported` schreibt es. Die Events sind modulintern; `Home.Contracts` entsteht erst, wenn ein anderes Modul sie braucht.
 
 ## Consistency Conventions
 
 | Concern | Convention |
 | --- | --- |
-| Naming | ADR 0003: Fachbegriffe deutsch wie CONTEXT.md, Umlaute als ae/oe/ue; Technisches englisch. Commands im Infinitiv (`MessungAufnehmen`), Events im Partizip (`MessungAufgenommen`). |
-| Schemas und Tabellen | Schema = Modulname klein (`klimageraet`); Tabellen klein, Plural, snake_case |
+| Naming | ADR 0005 (vorgeschlagen): Code englisch, Code-Namen der Fachbegriffe in CONTEXT.md. Commands im Infinitiv (`RecordMeasurement`), Events im Partizip (`MeasurementRecorded`). |
+| Schemas und Tabellen | Schema = Modulname klein (`air_conditioner`); Tabellen klein, Plural, snake_case |
 | Fehlerform HTTP | `ProblemDetails` (RFC 9457) |
 | Zeitstempel | `DateTimeOffset` in UTC im Code, `timestamptz` in PostgreSQL |
 | Observability | OpenTelemetry für Traces, Metriken und Logs per OTLP an das Aspire Dashboard. Jeder Command und jede Query ist ein Span; die Outbox speichert den Trace-Kontext und setzt ihn bei der Zustellung fort. |
@@ -238,9 +238,9 @@ Backend/
     Host/                         # Program, Komposition, Endpoint-Mapping, OTEL, Exception Handler
     Kernel/                       # Mediator, Behaviors, Result, Outbox, Interceptor
     Modules/
-      Klimageraet/                # Domain/, Features/<Feature>/, Infrastructure/ (DbContext, MQTT)
-      Klimageraet.Contracts/      # Integration Events, Commands für synchrone Aufrufe
-      Zuhause/                    # Domain/, Features/<Feature>/, Infrastructure/ (DbContext, Home-Assistant-Adapter); entsteht mit P9
+      AirConditioner/                # Domain/, Features/<Feature>/, Infrastructure/ (DbContext, MQTT)
+      AirConditioner.Contracts/      # Integration Events, Commands für synchrone Aufrufe
+      Home/                    # Domain/, Features/<Feature>/, Infrastructure/ (DbContext, Home-Assistant-Adapter); entsteht mit P9
   tests/
     Backend.Tests/                # Seam-Tests an der Backend-Grenze
 ```
@@ -272,17 +272,17 @@ flowchart LR
 
 | Capability / Area | Lives in | Governed by |
 | --- | --- | --- |
-| P1 Fähigkeiten erfragen | Klimageraet | AD-1, AD-9 |
-| P2 Zustand und Messwerte erfassen | Klimageraet | AD-1, AD-6, AD-8, AD-9, AD-15, AD-17, Spec P2 |
-| P3 Erreichbarkeit überwachen | Klimageraet (Erkennung), Benachrichtigung (Telegram) | AD-1, AD-8, AD-11 |
-| P4 Störung melden | Benachrichtigung | AD-7, AD-8 |
-| P5 Manuell steuern | Steuerung → Klimageraet | AD-9, AD-14 |
-| P9 Anwesenheit überwachen | Zuhause | AD-11, AD-15, AD-18, AD-19 |
-| P10 Matter-Geräte ansteuern | Zuhause | AD-8, AD-9, AD-18 |
-| P11 Nachhause-Kommen erkennen | Zuhause | AD-6, AD-19 |
-| P12 Dunkelheit bestimmen | Zuhause | AD-11, AD-15 |
-| P13 Wohnung einrichten | Zuhause → Klimageraet | AD-8, AD-14, AD-17, AD-19 |
-| P14 Wohnung ausschalten | Zuhause → Klimageraet | AD-8, AD-14, AD-19 |
+| P1 Fähigkeiten erfragen | AirConditioner | AD-1, AD-9 |
+| P2 Zustand und Messwerte erfassen | AirConditioner | AD-1, AD-6, AD-8, AD-9, AD-15, AD-17, Spec P2 |
+| P3 Erreichbarkeit überwachen | AirConditioner (Erkennung), Notifications (Telegram) | AD-1, AD-8, AD-11 |
+| P4 Störung melden | Notifications | AD-7, AD-8 |
+| P5 Manuell steuern | Control → AirConditioner | AD-9, AD-14 |
+| P9 Anwesenheit überwachen | Home | AD-11, AD-15, AD-18, AD-19 |
+| P10 Matter-Geräte ansteuern | Home | AD-8, AD-9, AD-18 |
+| P11 Nachhause-Kommen erkennen | Home | AD-6, AD-19 |
+| P12 Dunkelheit bestimmen | Home | AD-11, AD-15 |
+| P13 Wohnung einrichten | Home → AirConditioner | AD-8, AD-14, AD-17, AD-19 |
+| P14 Wohnung ausschalten | Home → AirConditioner | AD-8, AD-14, AD-19 |
 
 ## Deferred
 

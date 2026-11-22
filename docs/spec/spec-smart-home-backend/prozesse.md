@@ -4,11 +4,11 @@ Katalog der Hauptprozesse. P1–P5 stammen aus dem EventStorming (Big Picture), 
 
 | Prozess | CAP | Modul | Auslöser | Typische Events | Offene Hotspots |
 | --- | --- | --- | --- | --- | --- |
-| P1 Klimagerät einbinden | CAP-1 | Klimageraet | Start / erster Kontakt | Fähigkeiten erfragt | Zeitpunkt der Abfrage |
-| P2 Zustand und Messwerte erfassen | CAP-2 | Klimageraet | jede Minute | MessungAufgenommen (intern); SolltemperaturGeaendert, ModusGeaendert, Eingeschaltet, Ausgeschaltet, SelbstreinigungGestartet, FehlercodeGemeldet (Integration Events) | – (geklärt) |
-| P3 Erreichbarkeit überwachen | CAP-3 | Klimageraet (Erkennung), Benachrichtigung | 2 Minuten ohne Messung | Klimagerät offline, wieder online, Benachrichtigung gesendet | Offline als Event des Aggregates? Ausfall Hilfsdienst/MQTT unterscheiden? |
-| P4 Störung melden | CAP-4 | Benachrichtigung | FehlercodeGemeldet | Benachrichtigung gesendet | „Fehlercode behoben“ nötig? |
-| P5 Manuell steuern | CAP-5 | Steuerung → Klimageraet | Nutzer (HTTP) | Befehl gesendet | – |
+| P1 Klimagerät einbinden | CAP-1 | AirConditioner | Start / erster Kontakt | Fähigkeiten erfragt | Zeitpunkt der Abfrage |
+| P2 Zustand und Messwerte erfassen | CAP-2 | AirConditioner | jede Minute | MeasurementRecorded (intern); TargetTemperatureChanged, ModeChanged, Eingeschaltet, Ausgeschaltet, SelfCleanStarted, ErrorCodeReported (Integration Events) | – (geklärt) |
+| P3 Erreichbarkeit überwachen | CAP-3 | AirConditioner (Erkennung), Benachrichtigung | 2 Minuten ohne Messung | Klimagerät offline, wieder online, Benachrichtigung gesendet | Offline als Event des Aggregates? Ausfall Hilfsdienst/MQTT unterscheiden? |
+| P4 Störung melden | CAP-4 | Benachrichtigung | ErrorCodeReported | Benachrichtigung gesendet | „Fehlercode behoben“ nötig? |
+| P5 Manuell steuern | CAP-5 | Steuerung → AirConditioner | Nutzer (HTTP) | Befehl gesendet | – |
 | P9 Anwesenheit überwachen | CAP-9 | offen | IP 192.168.1.29 antwortet 2 Minuten nicht; Schreibtisch > 50 W | Bewohner abwesend | Prüfverfahren; 50-W-Regel bei bereits Abwesenden |
 | P10 Matter-Geräte ansteuern | CAP-10 | offen | Bewegung vom Melder; Schaltbefehl | Bewegung erkannt, Steckdose geschaltet | Matter-Anbindung (eigenes ADR); Entprellung |
 | P11 Nachhause-Kommen erkennen | CAP-11 | offen | Bewegung erkannt bei Abwesenheit | Nachhause-Kommen erkannt | Rückkehr der IP vor dem Melder |

@@ -67,7 +67,7 @@ sources: []
 - Die Anwesenheit stützt sich auf die feste IP-Adresse 192.168.1.29.
 - Die Dunkelheit stützt sich auf Meteomatics und braucht Internet.
 - Persistenz in PostgreSQL (ADR 0002).
-- Fachbegriffe im Code wie in CONTEXT.md, Umlaute als ae/oe/ue (ADR 0003).
+- Der Code ist englisch; die Code-Namen der Fachbegriffe stehen in CONTEXT.md (ADR 0005, vorgeschlagen).
 - Die Architecture Spine (AD-1 bis AD-17) ist bindend, soweit sie dieses Update nicht berührt; AD-1, AD-9, AD-11 und AD-14 sind seit 2026-11-21 angepasst, neu sind AD-18 und AD-19.
 - Betrieb auf einem Raspberry Pi mit Docker Compose; knappe Ressourcen schliessen schwere Zusatzdienste aus.
 - Zugriff nur im LAN und über Tailscale; die App hat keine Anmeldung.
@@ -97,7 +97,7 @@ sources: []
 
 ## Open Questions
 
-- CAP-3: Ist „Klimagerät offline“ ein Event des Aggregates Klimageraet, und soll ein Ausfall von Hilfsdienst/MQTT unterschieden werden?
+- CAP-3: Ist „Klimagerät offline“ ein Event des Aggregates AirConditioner, und soll ein Ausfall von Hilfsdienst/MQTT unterschieden werden?
 - CAP-4: Braucht es ein Event „Fehlercode behoben“?
 - CAP-9/15: Wie wird die IP geprüft (z. B. Ping oder ARP)? Bei 2 Minuten sind Fehlabwesenheiten durch WLAN-Standby des Telefons möglich und schalten dann Licht und Klima aus; die 50-W-Regel schützt nur den Schreibtisch-Fall.
 - CAP-11: Was gilt bei einer Bewegung, bevor die IP zurück ist (z. B. WLAN am Telefon aus)?
@@ -109,7 +109,7 @@ sources: []
 - CAP-12: Home Assistant kann den Sonnenstand (`sun`) liefern. Ersetzt das Meteomatics? Die IP-Präsenz prüft das Backend selbst (entschieden 2026-11-21).
 - CAP-12: Meteomatics: Zugangsdaten, Kosten und Limits, Standort, Verhalten bei Nichterreichbarkeit (z. B. gecachte Sonnenzeiten oder feste Uhrzeiten), Dämmerung oder Sonnenuntergang als Grenze.
 - CAP-14: Ist die Raumtemperatur bei ausgeschaltetem Klimagerät zuverlässig (der Bewohner prüft das)? Wie genau lautet danach die Ersatzregel, und was heisst „aktuellen Status holen“?
-- Spine (Modul Zuhause, AD-18, AD-19), CONTEXT.md und Spec P2 sind seit 2026-11-21 angepasst.
-- Spine AD-17 und Spec P2: Wird `MesswerteGemeldet` bei jeder Messung oder nur bei Änderung veröffentlicht, und wie stösst CAP-14 „aktuellen Status holen“ eine frische Messung an?
+- Spine (Modul Home, AD-18, AD-19), CONTEXT.md und Spec P2 sind seit 2026-11-21 angepasst.
+- Spine AD-17 und Spec P2: Wird `ReadingsReported` bei jeder Messung oder nur bei Änderung veröffentlicht, und wie stösst CAP-14 „aktuellen Status holen“ eine frische Messung an?
 - Wie sieht der MQTT-Vertrag mit dem Hilfsdienst aus (Topics, Payload, QoS, `schemaVersion`)?
 - Wird das Risiko akzeptiert, den Npgsql-Provider für EF Core 11 als RC einzusetzen?
