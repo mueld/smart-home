@@ -1,3 +1,6 @@
 <Solution>
+  <Folder Name="/tests/">
+    <Project Path="Backend.Tests/Backend.Tests.csproj" Id="6f484ab5-9a5d-43be-b8b0-7cd007d2515d" />
+  </Folder>
   <Project Path="Backend/Backend.csproj" />
 </Solution>
