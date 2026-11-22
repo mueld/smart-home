@@ -29,7 +29,7 @@ companions:
 | Ebene | Ort | Inhalt |
 | --- | --- | --- |
 | Host | `Host` | Komposition, Minimal-API-Mapping, OTEL, globaler Exception Handler |
-| Kernel | `Kernel` | Mediator, Pipeline Behaviors, Outcome, Outbox, Domain-Event-Interceptor |
+| Kernel | `Kernel` | Pipeline Behaviors (Mediator-Bibliothek), Outcome, Outbox, Domain-Event-Interceptor |
 | Modul | `Modules/<Modul>` | `Domain/`, `Features/<Feature>/`, `Infrastructure/` |
 | Modul-Vertrag | `Modules/<Modul>.Contracts` | Integration Events und Commands für synchrone Aufrufe |
 
@@ -75,35 +75,35 @@ flowchart TD
 - **Prevents:** geteilte Service-Schichten und Commands, die am Aggregate vorbei schreiben
 - **Rule:** Jedes Feature liegt in einem Ordner `Features/<Feature>/` mit Endpoint, Command bzw. Query, Handler und – bei Commands – Validator. Commands ändern Zustand nur über ein Aggregate. Queries lesen direkt per Projektion (ohne Tracking, ohne Aggregate) und laufen ohne Transaction Behavior.
 
-### AD-5 — Eigener Mediator und Pipeline [ADOPTED]
+### AD-5 — Mediator und Pipeline [ADOPTED, geändert 2026-11-22]
 
 - **Binds:** alle Commands und Queries
-- **Prevents:** Lizenzabhängigkeit und abweichende Pipeline-Reihenfolgen
-- **Rule:** Der Mediator ist selbst gebaut (`Kernel`). Die Pipeline für Commands lautet: **Validation → Transaction → Handler**. Validatoren sind FluentValidation-Validatoren im Feature-Ordner. Schlägt die Validation fehl, wird keine Transaktion gestartet; sie liefert `ValidationFailed` als `Outcome`. Das Transaction Behavior löst anhand des Commands den DbContext des zuständigen Moduls auf und startet eine Transaktion oder übernimmt die bestehende (AD-14).
+- **Prevents:** abweichende Pipeline-Reihenfolgen und Mediator-Code in Modulen
+- **Rule:** Der Mediator ist die Bibliothek `Mediator` von Martin Othamar (Open Source, Source Generator), Version 3.1.0-rc.1 [ASSUMPTION: GA ausstehend, Risiko]; `Kernel` und die Module referenzieren nur `Mediator.Abstractions`, nur `Host` (Randprojekt) den `Mediator.SourceGenerator` und `AddMediator`. Lebensdauer ist `Scoped` (AD-15), die generierten Typen sind `internal`. Messages sind `ICommand<TResponse>` (TResponse ist ein `Outcome`) und `IQuery<TResponse>`, Handler `ICommandHandler` und `IQueryHandler`. Die Pipeline für Commands lautet: **Validation → Transaction → Handler**. Validatoren sind FluentValidation-Validatoren im Feature-Ordner. Schlägt die Validation fehl, wird keine Transaktion gestartet; sie liefert `ValidationFailed` als `Outcome`. Die Behaviors (`ValidationBehavior`, `TransactionBehavior` im `Kernel`) sind `IPipelineBehavior<,>`, auf `ICommand<TResponse>` mit `TResponse : IOutcome<TResponse>` beschränkt und in `MediatorOptions.PipelineBehaviors` in dieser Reihenfolge eingetragen; Queries laufen ohne Behaviors. Die Telemetrie des Mediators (Span und Metrik je Message) ist eingeschaltet. Das Transaction Behavior löst anhand des Commands den DbContext des zuständigen Moduls auf und startet eine Transaktion oder übernimmt die bestehende (AD-14). Das Modul eines Commands ergibt sich aus dessen Namespace: Jedes Modul registriert sich mit `AddModule<TDbContext>(rootNamespace, ...)`, und die Contracts liegen unter dem Namespace des Moduls (z. B. `Backend.Modules.AirConditioner.Contracts`).
 
-### AD-6 — Ablauf eines Commands und Domain Events [ADOPTED]
+### AD-6 — Ablauf eines Commands und Domain Events [ADOPTED, geändert 2026-11-22]
 
 - **Binds:** alle Command-Handler und Domain-Event-Handler
-- **Prevents:** Events nach dem Commit, zweites `SaveChanges` aus Handlern, Kaskaden
-- **Rule:** Transaktion starten → Handler → `SaveChanges` → Interceptor im **SavingChanges**-Hook dispatcht Domain Events in-process (in einer Schleife, bis keine neuen entstehen) → Commit. Domain-Event-Handler arbeiten nur im eigenen Modul und im selben DbContext, rufen nie `SaveChanges` auf, rufen nie Umsysteme auf und rufen nie fremde Module auf. Gespeichert wird nur asynchron (`SaveChangesAsync`); der Interceptor implementiert `SavingChangesAsync`.
+- **Prevents:** Domain Events ausserhalb der Transaktion des Commands, Events nach dem Commit, halb ausgeführte Ketten
+- **Rule:** Über jedem Command und allen seinen rekursiv ausgelösten Domain Events liegt **eine** Transaktion. Ablauf: Transaktion starten → Command-Handler → `SaveChangesAsync` → der Interceptor im **SavedChanges**-Hook veröffentlicht die Domain Events der gespeicherten Aggregates als Notifications des Mediators (`IDomainEvent` ist eine `INotification`), noch innerhalb der Transaktion → Domain-Event-Handler rufen entweder selbst `SaveChangesAsync` auf oder senden Commands über den Mediator (volle Pipeline, sie treten der Transaktion bei, AD-14); jeder Save veröffentlicht die Events, die er auslöst, rekursiv, bevor er zurückkehrt → Commit durch das äusserste Transaction Behavior. Ein Fehler-Outcome oder eine Exception irgendwo in der Kette rollt alles zurück. Ein Domain Event, das ein Handler auslöst, wird nur veröffentlicht, wenn er speichert (`SaveChangesAsync` oder ein gesendeter Command). Domain-Event-Handler rufen keine Umsysteme auf; das läuft über die Outbox (AD-8). Gespeichert wird nur asynchron; der Interceptor implementiert `SavedChangesAsync`, synchrones `SaveChanges` wird abgelehnt.
 
 ```mermaid
 sequenceDiagram
     participant TB as Transaction Behavior
     participant H as Command-Handler
     participant DB as DbContext
-    participant IC as Interceptor (SavingChanges)
+    participant IC as Interceptor (SavedChanges)
     participant DH as Domain-Event-Handler
     participant OB as Outbox
     TB->>DB: Transaktion starten
     TB->>H: Command
-    H->>DB: SaveChanges
-    DB->>IC: Domain Events einsammeln
-    loop bis keine neuen Events
-        IC->>DH: dispatch
-        DH->>OB: ggf. Integration Event / externer Auftrag
-    end
-    TB->>DB: Commit
+    H->>DB: SaveChangesAsync
+    DB->>IC: gespeichert, Events einsammeln
+    IC->>DH: Notification (in der Transaktion)
+    DH->>DB: SaveChangesAsync oder Command über den Mediator
+    DB->>IC: rekursiv, Events des nächsten Saves
+    DH->>OB: ggf. Integration Event / externer Auftrag
+    TB->>DB: Commit (nur das äusserste Behavior)
 ```
 
 ### AD-7 — Synchron nur bei gleicher Konsistenz [ADOPTED]
@@ -139,7 +139,7 @@ sequenceDiagram
 ### AD-12 — IDs im Code [ADOPTED]
 
 - **Binds:** alle Entitäten
-- **Prevents:** fehlende IDs beim Dispatch in SavingChanges
+- **Prevents:** fehlende IDs beim Dispatch der Domain Events (SavedChanges)
 - **Rule:** IDs werden im Code erzeugt, nie von der Datenbank: `Guid.CreateVersion7(timeProvider.GetUtcNow())`.
 
 ### AD-13 — Zugriff ohne Anmeldung [ADOPTED]
@@ -152,7 +152,7 @@ sequenceDiagram
 
 - **Binds:** alle Commands aus `<Modul>.Contracts`, das Transaction Behavior, alle Modul-DbContexts
 - **Prevents:** halb ausgeführte modulübergreifende Commands; parallele, voneinander unabhängige Transaktionen pro DbContext
-- **Rule:** Ein Command aus einem fremden `<Modul>.Contracts` darf aus einem Endpoint, einem Command-Handler, einem Outbox-Konsumenten oder einem Zeit-Trigger aufgerufen werden – nicht aus einem Domain-Event-Handler (AD-6). Er läuft über den Mediator durch die volle Pipeline. Das Transaction Behavior löst den DbContext des Moduls auf, dem der Command gehört; läuft bereits eine Transaktion, tritt dieser DbContext ihr über dieselbe Datenbankverbindung bei, sonst startet es eine neue. Alle Modul-DbContexts eines Scopes teilen deshalb eine Verbindung: eine scoped `NpgsqlConnection`, die jedem DbContext per `UseNpgsql(DbConnection)` übergeben wird; beigetreten wird per `UseTransactionAsync`. Eine Retrying Execution Strategy wird nicht verwendet. Nur das äusserste Transaction Behavior committet (bei Erfolg) oder rollt zurück (bei Fehler-Outcome oder Exception); ein beigetretenes committet nie selbst. Ein beigetretenes Behavior setzt vor dem Handler einen Savepoint und rollt bei Fehler-Outcome oder Exception darauf zurück. Contract-Commands sind azyklisch: heute Control → AirConditioner und Home → AirConditioner; AirConditioner meldet sich bei Control und Home nur über Integration Events. Das Transaction Behavior verweigert den erneuten Eintritt in einen DbContext, der im Scope bereits einen Command ausführt.
+- **Rule:** Ein Command aus einem fremden `<Modul>.Contracts` darf aus einem Endpoint, einem Command-Handler, einem Outbox-Konsumenten oder einem Zeit-Trigger oder einem Domain-Event-Handler (AD-6) aufgerufen werden. Ein Command aus einem Domain-Event-Handler läuft nach dem `SaveChanges`, das das Event ausgelöst hat, und zählt nicht als erneuter Eintritt in den DbContext. Er läuft über den Mediator durch die volle Pipeline. Die Behaviors (`ValidationBehavior`, `TransactionBehavior` im `Kernel`) sind `IPipelineBehavior<,>`, auf `ICommand<TResponse>` mit `TResponse : IOutcome<TResponse>` beschränkt und in `MediatorOptions.PipelineBehaviors` in dieser Reihenfolge eingetragen; Queries laufen ohne Behaviors. Die Telemetrie des Mediators (Span und Metrik je Message) ist eingeschaltet. Das Transaction Behavior löst den DbContext des Moduls auf, dem der Command gehört; läuft bereits eine Transaktion, tritt dieser DbContext ihr über dieselbe Datenbankverbindung bei, sonst startet es eine neue. Alle Modul-DbContexts eines Scopes teilen deshalb eine Verbindung: eine scoped `NpgsqlConnection`, die jedem DbContext per `UseNpgsql(DbConnection)` übergeben wird; beigetreten wird per `UseTransactionAsync`. Eine Retrying Execution Strategy wird nicht verwendet. Nur das äusserste Transaction Behavior committet (bei Erfolg) oder rollt zurück (bei Fehler-Outcome oder Exception); ein beigetretenes committet nie selbst. Ein beigetretenes Behavior setzt vor dem Handler einen Savepoint und rollt bei Fehler-Outcome oder Exception darauf zurück. Contract-Commands sind azyklisch: heute Control → AirConditioner und Home → AirConditioner; AirConditioner meldet sich bei Control und Home nur über Integration Events. Das Transaction Behavior verweigert den erneuten Eintritt in einen DbContext, der im Scope bereits einen Command ausführt.
 
 ```mermaid
 sequenceDiagram
@@ -199,7 +199,7 @@ sequenceDiagram
 
 - **Binds:** P9–P14
 - **Prevents:** Einrichten oder Ausschalten als Domain-Event-Handler mit Aufrufen an fremde Module; mehrere Wahrheiten über die Anwesenheit
-- **Rule:** Das Aggregate `Presence` hat die Zustände `Present`, `Away` und `Returned` (IP wieder da, Bewegung steht aus) und wird beim ersten Command angelegt. Es ändert sich nur durch die Commands `RecordIpPresence`, `RecordMotion` und `RecordPower`. Die 2-Minuten-Frist rechnet allein das Aggregate: Der IP-Trigger sendet bei jeder Prüfung (erreichbar ja oder nein, Zeitpunkt der Prüfung), nie nur Flanken; Bewegung und Leistung tragen ihren fachlichen Zeitpunkt. Daraus entstehen die Domain Events `HomecomingDetected` und `BecameAway`; ihr Handler schreibt je ein Integration Event in die Outbox von Home. `SetUpHome` und `ShutDownHome` laufen als Outbox-Konsumenten dieser Events (eigener Scope, eigene Transaktion), schalten Steckdosen über die Outbox (AD-18) und senden das Klimagerät über Commands aus `AirConditioner.Contracts` (AD-14), nie aus einem Domain-Event-Handler (AD-6). Jeder Geräteschritt von `SetUpHome` und `ShutDownHome` (Schreibtisch, Licht, Klima) ist ein eigener Auftrag bzw. Command; ein Fehler-Outcome eines Schritts verhindert die übrigen nicht und führt nicht zu endloser Neuzustellung. Die letzte Raum- und Aussentemperatur hält das eigene Aggregate `RoomReadings`, nicht `Presence`; ein Konsument von `ReadingsReported` schreibt es. Die Events sind modulintern; `Home.Contracts` entsteht erst, wenn ein anderes Modul sie braucht.
+- **Rule:** Das Aggregate `Presence` hat die Zustände `Present`, `Away` und `Returned` (IP wieder da, Bewegung steht aus) und wird beim ersten Command angelegt. Es ändert sich nur durch die Commands `RecordIpPresence`, `RecordMotion` und `RecordPower`. Die 2-Minuten-Frist rechnet allein das Aggregate: Der IP-Trigger sendet bei jeder Prüfung (erreichbar ja oder nein, Zeitpunkt der Prüfung), nie nur Flanken; Bewegung und Leistung tragen ihren fachlichen Zeitpunkt. Daraus entstehen die Domain Events `HomecomingDetected` und `BecameAway`; ihr Handler schreibt je ein Integration Event in die Outbox von Home. `SetUpHome` und `ShutDownHome` laufen als Outbox-Konsumenten dieser Events (eigener Scope, eigene Transaktion), schalten Steckdosen über die Outbox (AD-18) und senden das Klimagerät über Commands aus `AirConditioner.Contracts` (AD-14), nie aus einem Domain-Event-Handler (AD-7: ein Fehler dort würde das Abwesend-Werden zurückrollen). Jeder Geräteschritt von `SetUpHome` und `ShutDownHome` (Schreibtisch, Licht, Klima) ist ein eigener Auftrag bzw. Command; ein Fehler-Outcome eines Schritts verhindert die übrigen nicht und führt nicht zu endloser Neuzustellung. Die letzte Raum- und Aussentemperatur hält das eigene Aggregate `RoomReadings`, nicht `Presence`; ein Konsument von `ReadingsReported` schreibt es. Die Events sind modulintern; `Home.Contracts` entsteht erst, wenn ein anderes Modul sie braucht.
 
 ## Consistency Conventions
 
@@ -222,6 +222,7 @@ sequenceDiagram
 | EF Core | 11.0 |
 | Npgsql.EntityFrameworkCore.PostgreSQL | 11.0.0-rc.3 (GA ausstehend – Risiko) |
 | FluentValidation | 12.2 |
+| Mediator (Martin Othamar; `Mediator.Abstractions`, `Mediator.SourceGenerator`) | 3.1.0-rc.1 (GA ausstehend – Risiko) |
 | PostgreSQL | 18 |
 | Eclipse Mosquitto | 2.1 |
 | Home Assistant (Container, beim Bewohner vorhanden) | Version des Bewohners; WebSocket-API |
@@ -236,7 +237,7 @@ sequenceDiagram
 Backend/
   src/
     Host/                         # Program, Komposition, Endpoint-Mapping, OTEL, Exception Handler
-    Kernel/                       # Mediator, Behaviors, Outcome, Outbox, Interceptor
+    Kernel/                       # Behaviors, Outcome, Outbox, Interceptor (Mediator-Bibliothek)
     Modules/
       AirConditioner/                # Domain/, Features/<Feature>/, Infrastructure/ (DbContext, MQTT)
       AirConditioner.Contracts/      # Integration Events, Commands für synchrone Aufrufe
