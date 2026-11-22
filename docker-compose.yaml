@@ -1,15 +1,28 @@
+# Compose-App für Dokploy auf dem Raspberry Pi 5.
+# Dokploy klont das Repo bei jedem Deploy neu. Persistente Daten liegen deshalb
+# unter ../files/ (Dokploys persistenter Ordner) oder in benannten Volumes,
+# nie unter ./ im Repo.
+
 services:
   backend:
-    container_name: homeassistant
-    image: ghcr.io/home-assistant/home-assistant:stable
+    image: ghcr.io/mueld/smart-home-backend:latest
     restart: unless-stopped
-    privileged: true
-    network_mode: host
-    stop_grace_period: 60s
+    pull_policy: always
     environment:
       TZ: Europe/Zurich
-    volumes:
-      - ./homeassistant:/config
+      ASPNETCORE_HTTP_PORTS: "8081"
+      # Traces, Metriken und Logs an Grafana LGTM (OTLP/gRPC im Compose-Netz).
+      OTEL_SERVICE_NAME: smart-home-backend
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    # Home Assistant läuft im Host-Netzwerk; so erreicht das Backend es unter
+    # http://host.docker.internal:8123
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8081:8081"
+    depends_on:
+      - lgtm
 
   homeassistant:
     container_name: homeassistant
@@ -21,7 +34,7 @@ services:
     environment:
       TZ: Europe/Zurich
     volumes:
-      - ~/homeassistant:/config
+      - ../files/homeassistant:/config
 
   matter-server:
     container_name: matterjs-server
@@ -33,4 +46,18 @@ services:
       # Remove this line once pairing is done and the socket still works.
       ENABLE_TEST_NET_DCL: "true"
     volumes:
-      - ./matter-data:/data
+      - ../files/matter-data:/data
+
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Zurich
+    ports:
+      # Grafana. Host-Port 3000 belegt Dokploy selbst.
+      - "3001:3000"
+    volumes:
+      - lgtm-data:/data
+
+volumes:
+  lgtm-data:
