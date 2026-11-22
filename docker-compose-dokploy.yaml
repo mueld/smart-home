@@ -1,0 +1,67 @@
+# Compose-App für Dokploy auf dem Raspberry Pi 5.
+# Dokploy klont das Repo bei jedem Deploy neu. Persistente Daten liegen deshalb
+# unter ../files/ (Dokploys persistenter Ordner) oder in benannten Volumes,
+# nie unter ./ im Repo.
+
+services:
+  backend:
+    image: ghcr.io/mueld/smart-home-backend:latest
+    restart: unless-stopped
+    pull_policy: always
+    environment:
+      TZ: Europe/Zurich
+      ASPNETCORE_HTTP_PORTS: "8081"
+      # Traces, Metriken und Logs an Grafana LGTM (OTLP/gRPC im Compose-Netz).
+      OTEL_SERVICE_NAME: smart-home-backend
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    # Home Assistant läuft im Host-Netzwerk; so erreicht das Backend es unter
+    # http://host.docker.internal:8123
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8081:8081"
+    depends_on:
+      - lgtm
+    # Keine Traefik-Labels und kein dokploy-network hier: Eine Domain trägt man in Dokploy
+    # unter Domains für den Dienst "backend" (Port 8081) ein. Dokploy ergänzt Netz und Labels
+    # beim Deploy selbst. Dienste mit network_mode: host (homeassistant, matter-server)
+    # dürfen keine Domain bekommen.
+
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:stable
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    stop_grace_period: 60s
+    environment:
+      TZ: Europe/Zurich
+    volumes:
+      - ../files/homeassistant:/config
+
+  matter-server:
+    container_name: matterjs-server
+    image: ghcr.io/matter-js/matterjs-server:stable
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      # Needed only for devices with test certificates (e.g. the Hombli socket).
+      # Remove this line once pairing is done and the socket still works.
+      ENABLE_TEST_NET_DCL: "true"
+    volumes:
+      - ../files/matter-data:/data
+
+  lgtm:
+    image: grafana/otel-lgtm:latest
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Zurich
+    ports:
+      # Grafana. Host-Port 3000 belegt Dokploy selbst.
+      - "3001:3000"
+    volumes:
+      - lgtm-data:/data
+
+volumes:
+  lgtm-data:
