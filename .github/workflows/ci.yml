@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  IMAGE_NAME: smart-home-backend
+
+defaults:
+  run:
+    working-directory: Backend
+
+jobs:
+  # Pull Request: Tests laufen lassen, Testbericht erstellen, Image bauen (ohne Push).
+  pull-request:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write # für den Testbericht
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.x
+
+      - name: Restore
+        run: dotnet restore Backend.slnx
+
+      - name: Build
+        run: dotnet build Backend.slnx --no-restore -c Release
+
+      - name: Test
+        run: >
+          dotnet test --solution Backend.slnx --no-build -c Release
+          --report-junit --report-junit-filename junit.xml
+          --results-directory ./TestResults
+
+      - name: Testbericht
+        if: ${{ !cancelled() }}
+        uses: dorny/test-reporter@v2
+        with:
+          name: Testbericht
+          path: Backend/TestResults/**/junit.xml
+          reporter: java-junit
+          fail-on-empty: true
+
+      - name: Testergebnisse hochladen
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: testergebnisse
+          path: Backend/TestResults/
+          if-no-files-found: warn
+
+      # Baut das Image über dotnet publish (Container-Support des SDK), aber pusht nichts.
+      - name: Backend-Image bauen (ohne Push)
+        run: >
+          dotnet publish Backend/Backend.csproj -c Release
+          --os linux --arch arm64
+          -t:PublishContainer
+          -p:ContainerRepository=${{ env.IMAGE_NAME }}
+          -p:ContainerArchiveOutputPath=${{ runner.temp }}/backend-image.tar.gz
+
+  # Main: Backend-Image bauen und nach GitHub Container Registry pushen.
+  main:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # für ghcr.io
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 11.0.x
+
+      - name: Backend-Image bauen und pushen
+        env:
+          SDK_CONTAINER_REGISTRY_UNAME: ${{ github.actor }}
+          SDK_CONTAINER_REGISTRY_PWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          dotnet publish Backend/Backend.csproj -c Release \
+            --os linux --arch arm64 \
+            -t:PublishContainer \
+            -p:ContainerRegistry=ghcr.io \
+            -p:ContainerRepository="${OWNER}/${IMAGE_NAME}" \
+            -p:ContainerImageTags='"latest;${{ github.sha }}"'
