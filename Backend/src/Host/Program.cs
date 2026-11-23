@@ -1,6 +1,7 @@
 using System.Data.Common;
 using Backend.Kernel;
 using Backend.Kernel.Behaviors;
+using Backend.Modules.Home;
 using Mediator;
 using Npgsql;
 using OpenTelemetry;
@@ -45,6 +46,9 @@ builder.Services.AddMediator(options =>
     options.Telemetry.EnableMetrics = true;
 });
 builder.Services.AddKernel();
+
+// Home module: Home Assistant gateway (AD-18), a background service. Config: HomeAssistant:Url, HomeAssistant:Token, HomeAssistant:Entities.
+builder.Services.AddHome(builder.Configuration);
 
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi

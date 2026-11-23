@@ -1,8 +1,8 @@
 - id: "1"
-  title: Home-Assistant-Gateway für Matter-Geräte
+  title: Home-Assistant-Gateway für den Bewegungsmelder
   description: >-
-    Ein Home-Assistant-Adapter im Modul Home (eine WebSocket-Verbindung, ein Gateway-Interface, ein Fake)
-    mit Auth, schmalen Abos, Reconnect mit Backoff und get_states nach jedem Verbindungsaufbau (AD-18, CAP-10).
+    Ein Home-Assistant-Adapter im Modul Home (eine WebSocket-Verbindung) mit Auth, Abo auf den Bewegungsmelder (to: on),
+    Reconnect mit Backoff; jedes Ereignis wird als Domain Event MotionDetected über den Mediator veröffentlicht (AD-18, CAP-10).
   spec_checkpoint: true
   done_checkpoint: true
   invoke_dev_with: >-
@@ -12,8 +12,8 @@
 - id: "2"
   title: Bewegung am Eingang empfangen
   description: >-
-    Eine Bewegung des Bewegungsmelders erreicht das Backend über das Gateway als Command RecordMotion mit
-    fachlichem Zeitpunkt (CAP-10, AD-18, AD-19).
+    Der Handler von MotionDetected (aus Story 1) sendet den Command RecordMotion mit dem fachlichen Zeitpunkt
+    der Bewegung (CAP-10, AD-18, AD-19).
 - id: "3"
   title: Steckdosen schalten und Leistung lesen
   description: >-
