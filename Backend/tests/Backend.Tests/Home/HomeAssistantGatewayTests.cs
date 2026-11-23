@@ -198,6 +198,92 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
             e => { Assert.Null(e.Watts); Assert.Equal(T0.AddMinutes(2), e.ChangedAt); });
     }
 
+    private void SetStates(DateTimeOffset at, string motion = "on", string deskSwitch = "on", string deskPower = "83.4")
+    {
+        _server.States[Motion] = FakeHomeAssistantServer.State(Motion, motion, at);
+        _server.States[DeskSwitch] = FakeHomeAssistantServer.State(DeskSwitch, deskSwitch, at);
+        _server.States[DeskPower] = FakeHomeAssistantServer.State(DeskPower, deskPower, at);
+    }
+
+    [Fact]
+    public async Task After_subscribing_it_reads_the_current_states_and_publishes_them()
+    {
+        await _server.StartAsync();
+        SetStates(T0.AddMinutes(-3));
+
+        await StartGatewayAsync(url: _server.Url);
+        await Eventually(() => _deskRecorder.Events.Length == 2 && _recorder.Events.Length == 1, "the initial states");
+
+        Assert.Equal(["subscribe_trigger", $"GET {Motion}", $"GET {DeskSwitch}", $"GET {DeskPower}"], _server.Log);
+        Assert.Equal(T0.AddMinutes(-3), Assert.Single(_recorder.Events).DetectedAt);
+        var events = _deskRecorder.Events;
+        Assert.Contains(events, e => e is DeskSwitched { IsOn: true });
+        Assert.Contains(events, e => e is DeskPowerChanged { Watts: 83.4 });
+    }
+
+    [Fact]
+    public async Task A_motion_sensor_that_is_off_at_the_start_is_not_published()
+    {
+        await _server.StartAsync();
+        SetStates(T0, motion: "off");
+
+        await StartGatewayAsync(url: _server.Url);
+        await Eventually(() => _deskRecorder.Events.Length == 2, "the desk states");
+        await Quiet();
+
+        Assert.Empty(_recorder.Events);
+    }
+
+    [Fact]
+    public async Task After_a_reconnect_the_states_are_read_and_published_again()
+    {
+        await _server.StartAsync();
+        SetStates(T0, motion: "off");
+        await StartGatewayAsync(url: _server.Url);
+        await Eventually(() => _deskRecorder.Events.Length == 2, "the first states");
+
+        _server.Connections[0].Drop();
+        await Eventually(() => _gateway.Status.State == GatewayConnectionState.Disconnected, "disconnected");
+        _time.Advance(TimeSpan.FromSeconds(1));
+
+        await Eventually(() => _deskRecorder.Events.Length == 4, "the same states once more");
+    }
+
+    [Fact]
+    public async Task A_trigger_event_not_newer_than_the_read_state_is_not_published_again()
+    {
+        await _server.StartAsync();
+        SetStates(T0.AddMinutes(5), motion: "off");
+        await StartGatewayAsync(url: _server.Url);
+        await Eventually(() => _deskRecorder.Events.Length == 2, "the initial states");
+        var connection = _server.Connections[0];
+
+        await connection.SendTriggerEventAsync(DeskPower, "3.1", "83.4", T0.AddMinutes(5)); // the same change
+        await connection.SendTriggerEventAsync(DeskPower, "3.1", "60", T0.AddMinutes(4)); // older
+        await connection.SendTriggerEventAsync(DeskPower, "83.4", "4.2", T0.AddMinutes(6));
+        await Eventually(() => _deskRecorder.Events.Length >= 3, "the newer change");
+        await Quiet();
+
+        Assert.Equal(3, _deskRecorder.Events.Length);
+        Assert.Equal(4.2, Assert.IsType<DeskPowerChanged>(_deskRecorder.Events[^1]).Watts);
+    }
+
+    [Fact]
+    public async Task An_unknown_entity_is_skipped_and_the_others_are_published()
+    {
+        await _server.StartAsync();
+        SetStates(T0);
+        _server.States.TryRemove(DeskSwitch, out _);
+
+        await StartGatewayAsync(url: _server.Url);
+        await Eventually(() => _deskRecorder.Events.Length == 1 && _recorder.Events.Length == 1, "the known states");
+        await Quiet();
+
+        Assert.IsType<DeskPowerChanged>(Assert.Single(_deskRecorder.Events));
+        Assert.Equal(GatewayConnectionState.Connected, _gateway.Status.State);
+        Assert.Single(_server.Connections);
+    }
+
     [Fact]
     public async Task A_desk_switch_change_is_published_as_on_or_off()
     {

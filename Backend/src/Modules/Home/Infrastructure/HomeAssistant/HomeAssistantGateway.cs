@@ -28,6 +28,9 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
 
     private volatile GatewayStatus _status;
 
+    // Only touched by the connection loop; kept across reconnects.
+    private readonly Dictionary<string, DateTimeOffset> _lastPublished = [];
+
     public HomeAssistantGateway(
         IOptions<HomeAssistantOptions> options,
         IServiceScopeFactory scopes,
@@ -143,15 +146,47 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
         const int subscriptionId = 1;
         await SubscribeTrigger(socket, subscriptionId, cancellationToken);
 
-        while(true)
+        // Read after subscribing, so no change falls between the two; events of the subscription wait in the socket.
+        await PublishCurrentStatesAsync(cancellationToken);
+
+        while (true)
         {
             using var stateUpdate = await ReadAsync(socket, cancellationToken) ?? throw new IOException("Connection closed.");
-            if (TryParseTrigger(stateUpdate.RootElement, out var change))
+            if (TryParseTrigger(stateUpdate.RootElement, out var change) && IsNewerThanPublished(change!))
             {
                 await PublishDomainEventAsync(change!, cancellationToken);
             }
-        }        
+        }
     }
+
+    /// <summary>
+    /// After every (re)connect the current state of each entity is published, even if unchanged: changes during a
+    /// restart or a lost connection are not replayed by Home Assistant.
+    /// </summary>
+    private async Task PublishCurrentStatesAsync(CancellationToken cancellationToken)
+    {
+        using var http = new HttpClient { BaseAddress = new Uri(_options.Url.TrimEnd('/') + "/"), Timeout = _options.ConnectTimeout };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.Token);
+
+        foreach (var entityId in _options.SubscribedEntityIds)
+        {
+            using var response = await http.GetAsync($"api/states/{Uri.EscapeDataString(entityId)}", cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogWarning("Home Assistant does not know the entity {EntityId}; check the configuration.", entityId);
+                continue;
+            }
+
+            response.EnsureSuccessStatusCode();
+            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var state = await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
+            await PublishDomainEventAsync(ParseState(state.RootElement), cancellationToken);
+        }
+    }
+
+    /// <summary>A trigger event for a change already published from the state read (or older) is dropped.</summary>
+    private bool IsNewerThanPublished(StateChange change) =>
+        !_lastPublished.TryGetValue(change.EntityId, out var last) || change.ChangedAt > last;
 
     private async Task SubscribeTrigger(ClientWebSocket socket, int subscriptionId, CancellationToken cancellationToken)
     {
@@ -183,6 +218,11 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
     /// <summary>One DI scope per event (AD-15). A failing handler must not take down the connection.</summary>
     private Task PublishDomainEventAsync(StateChange change, CancellationToken cancellationToken)
     {
+        if (!_lastPublished.TryGetValue(change.EntityId, out var last) || change.ChangedAt > last)
+        {
+            _lastPublished[change.EntityId] = change.ChangedAt;
+        }
+
         if (change.EntityId == _options.MotionSensorEntityId)
         {
             return IsOnState(change)

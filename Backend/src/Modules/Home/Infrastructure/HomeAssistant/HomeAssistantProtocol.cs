@@ -75,12 +75,16 @@ internal static class HomeAssistantProtocol
             return false;
         }
 
-        state = new StateChange(
-            entityId.GetString()!,
-            toState.GetProperty("state").GetString() ?? "",
-            toState.GetProperty("last_changed").GetDateTimeOffset().ToUniversalTime());
+        state = ParseState(toState) with { EntityId = entityId.GetString()! };
         return true;
     }
+
+    /// <summary>Parses a state object, as <c>to_state</c> of a trigger event or the body of <c>GET /api/states/{entity_id}</c>.</summary>
+    public static StateChange ParseState(JsonElement state) =>
+        new(
+            state.GetProperty("entity_id").GetString()!,
+            state.GetProperty("state").GetString() ?? "",
+            state.GetProperty("last_changed").GetDateTimeOffset().ToUniversalTime());
     public static bool IsOnState(StateChange state) => state.State == "on";
 
     public static bool IsOffState(StateChange state) => state.State == "off";
