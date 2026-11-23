@@ -70,7 +70,7 @@ Start → Verbindung öffnen → auth_required → auth (Token) → auth_ok
 - Der Handler von `MotionDetected` und der Command `RecordMotion` (Story 2).
 - Steckdosen: Schalten und Leistung (Stories 3 und 5); dort kommt bei Bedarf das Lesen des Zustands (`get_states`) dazu.
 - Das Koppeln der Matter-Geräte in Home Assistant und der Betrieb des Matter-Servers.
-- Eine Entprellung des Bewegungsmelders (offene Frage der SPEC zu CAP-10).
+- Eine Entprellung des Bewegungsmelders (entschieden 2026-11-23: keine, siehe Story 6).
 - Ressourcen- und Lasttests auf dem Pi.
 
 ## Further Notes

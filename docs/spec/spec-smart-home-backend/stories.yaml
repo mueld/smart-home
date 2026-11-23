@@ -38,8 +38,8 @@
 - id: "6"
   title: Nachhause-Kommen erkennen
   description: >-
-    Die erste Bewegung nach der Rückkehr der IP löst genau ein HomecomingDetected aus und beendet die Abwesenheit;
-    IP allein und Bewegung bei Anwesenheit lösen nichts aus (CAP-11, AD-19).
+    Die erste Bewegung bei Abwesenheit löst genau ein HomecomingDetected aus und beendet die Abwesenheit, unabhängig
+    von der IP; die Rückkehr der IP allein und Bewegung bei Anwesenheit lösen nichts aus (CAP-11, AD-19).
 - id: "7"
   title: Dunkelheit bestimmen
   description: >-
