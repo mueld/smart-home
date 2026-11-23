@@ -1,6 +1,6 @@
 # Story 6 – Nachhause-Kommen erkennen
 
-Status: spezifiziert 2026-11-23 (noch nicht umgesetzt)
+Status: Domain umgesetzt 2026-11-23 (`Presence` mit Unit-Tests für S1–S9b); Command `RecordMotion`, Persistenz, Outbox und S10/S11 folgen mit den Stories 2 und 4
 Quelle: SPEC CAP-11, CAP-9; Architecture Spine AD-6, AD-8, AD-11, AD-16, AD-19; CONTEXT.md (Abwesend, Anwesend, Nachhause-Kommen)
 Voraussetzung: Story 2 (Command `RecordMotion`) und Story 4 (Aggregate `Presence`, `BecameAway`)
 
