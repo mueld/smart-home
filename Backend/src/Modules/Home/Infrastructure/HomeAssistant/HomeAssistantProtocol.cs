@@ -8,13 +8,16 @@ internal static class HomeAssistantProtocol
     public static byte[] Auth(string token) =>
         JsonSerializer.SerializeToUtf8Bytes(new { type = "auth", access_token = token });
 
-    /// <summary>A state trigger that fires when the entity changes to <c>on</c>: Home Assistant filters on its side.</summary>
-    public static byte[] SubscribeTriggerStateOn(int id, string entityId) =>
+    /// <summary>
+    /// One state trigger for all given entities. <c>to: null</c> makes Home Assistant send state changes only, not
+    /// attribute changes; the gateway filters by entity and state.
+    /// </summary>
+    public static byte[] SubscribeTriggerStateChanges(int id, IReadOnlyList<string> entityIds) =>
         JsonSerializer.SerializeToUtf8Bytes(new
         {
             id,
             type = "subscribe_trigger",
-            trigger = new { platform = "state", entity_id = entityId, to = "on" },
+            trigger = new { platform = "state", entity_id = entityIds, to = (string?)null },
         });
 
     public static bool? SubscriptionConfirmed(int id, JsonElement message)
@@ -79,5 +82,13 @@ internal static class HomeAssistantProtocol
         return true;
     }
     public static bool IsOnState(StateChange state) => state.State == "on";
+
+    public static bool IsOffState(StateChange state) => state.State == "off";
+
+    /// <summary>Home Assistant sends sensor values as invariant-culture strings; anything else (<c>unavailable</c>) is unknown.</summary>
+    public static double? Number(StateChange state) =>
+        double.TryParse(state.State, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)
+            ? value
+            : null;
 }
 public sealed class AuthenticationFailedException : Exception;

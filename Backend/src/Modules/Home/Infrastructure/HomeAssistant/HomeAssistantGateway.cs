@@ -13,8 +13,9 @@ namespace Backend.Modules.Home.Infrastructure.HomeAssistant;
 
 /// <summary>
 /// The one Home Assistant adapter of the Home module (AD-18). Runs in the background and keeps one WebSocket
-/// connection: authenticates, subscribes to the motion sensor changing to <c>on</c>, and publishes a
-/// <see cref="MotionDetected"/> domain event through the mediator for every such event.
+/// connection: authenticates, subscribes to state changes of the motion sensor and the desk (switch and power), and
+/// publishes them through the mediator as <see cref="MotionDetected"/> (only changes to <c>on</c>),
+/// <see cref="DeskSwitched"/> and <see cref="DeskPowerChanged"/>.
 /// Home Assistant delivers events at most once and without replay: motion during a lost connection is lost,
 /// and after a reconnect only new motion is reported.
 /// </summary>
@@ -154,7 +155,7 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
 
     private async Task SubscribeTrigger(ClientWebSocket socket, int subscriptionId, CancellationToken cancellationToken)
     {
-        await SendAsync(socket, SubscribeTriggerStateOn(subscriptionId, _options.MotionSensorEntityId), cancellationToken);
+        await SendAsync(socket, SubscribeTriggerStateChanges(subscriptionId, _options.SubscribedEntityIds), cancellationToken);
 
         while (true)
         {
@@ -172,7 +173,7 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
 
             if (subscriptionConfirmed is false)
             {
-                throw new InvalidOperationException("Home Assistant rejected the subscription to the motion sensor.");
+                throw new InvalidOperationException("Home Assistant rejected the subscription to the motion sensor and the desk.");
             }
             SetStatus(GatewayConnectionState.Connected);
             return;
@@ -180,18 +181,38 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
     }
 
     /// <summary>One DI scope per event (AD-15). A failing handler must not take down the connection.</summary>
-    private async Task PublishDomainEventAsync(StateChange change,  CancellationToken cancellationToken)
+    private Task PublishDomainEventAsync(StateChange change, CancellationToken cancellationToken)
     {
-        if (!IsOnState(change) || change.EntityId != _options.MotionSensorEntityId)
+        if (change.EntityId == _options.MotionSensorEntityId)
         {
-            return;
+            return IsOnState(change)
+                ? PublishAsync(new MotionDetected(change.EntityId, change.ChangedAt), change, cancellationToken)
+                : Task.CompletedTask;
         }
 
+        if (change.EntityId == _options.DeskSwitchEntityId)
+        {
+            return IsOnState(change) || IsOffState(change)
+                ? PublishAsync(new DeskSwitched(change.EntityId, IsOnState(change), change.ChangedAt), change, cancellationToken)
+                : Task.CompletedTask;
+        }
+
+        if (change.EntityId == _options.DeskPowerEntityId)
+        {
+            return PublishAsync(new DeskPowerChanged(change.EntityId, Number(change), change.ChangedAt), change, cancellationToken);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task PublishAsync<TEvent>(TEvent domainEvent, StateChange change, CancellationToken cancellationToken)
+        where TEvent : INotification
+    {
         try
         {
             await using var scope = _scopes.CreateAsyncScope();
             var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
-            await publisher.Publish(new MotionDetected(change.EntityId, change.ChangedAt), cancellationToken);
+            await publisher.Publish(domainEvent, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -199,7 +220,7 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
         }
         catch (Exception exception)
         {
-            _logger.LogError(exception, "Handling MotionDetected from {EntityId} at {DetectedAt} failed.", change.EntityId, change.ChangedAt);
+            _logger.LogError(exception, "Handling {Event} from {EntityId} at {ChangedAt} failed.", typeof(TEvent).Name, change.EntityId, change.ChangedAt);
         }
     }
 

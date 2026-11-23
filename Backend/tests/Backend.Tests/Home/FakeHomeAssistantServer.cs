@@ -115,8 +115,12 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
             {
                 var trigger = root.GetProperty("trigger");
                 connection.TriggerPlatform = trigger.GetProperty("platform").GetString();
-                connection.TriggerEntityId = trigger.GetProperty("entity_id").GetString();
-                connection.TriggerTo = trigger.TryGetProperty("to", out var to) ? to.GetString() : null;
+                var entityIds = trigger.GetProperty("entity_id");
+                connection.TriggerEntityIds = entityIds.ValueKind == JsonValueKind.Array
+                    ? [.. entityIds.EnumerateArray().Select(e => e.GetString()!)]
+                    : [entityIds.GetString()!];
+                connection.TriggerHasTo = trigger.TryGetProperty("to", out var to);
+                connection.TriggerTo = connection.TriggerHasTo && to.ValueKind == JsonValueKind.String ? to.GetString() : null;
                 connection.SubscriptionId = id;
                 await connection.SendAsync($$"""{"id":{{id}},"type":"result","success":true,"result":null}""");
             }
@@ -145,7 +149,10 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
 
         public string? TriggerPlatform { get; set; }
 
-        public string? TriggerEntityId { get; set; }
+        public string[] TriggerEntityIds { get; set; } = [];
+
+        /// <summary>Whether the state trigger has a <c>to</c> at all; <c>to: null</c> means state changes only, no attribute changes.</summary>
+        public bool TriggerHasTo { get; set; }
 
         /// <summary>The <c>to</c> of the state trigger the gateway subscribed with.</summary>
         public string? TriggerTo { get; set; }

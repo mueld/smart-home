@@ -9,7 +9,7 @@ public enum GatewayConnectionState
 
     Connecting,
 
-    /// <summary>Authenticated and subscribed to the motion sensor.</summary>
+    /// <summary>Authenticated and subscribed to the motion sensor and the desk.</summary>
     Connected,
 
     /// <summary>Home Assistant rejected the token. The gateway stays here until the backend restarts.</summary>

@@ -40,6 +40,35 @@ public sealed class RecordMotionDetectedHandler(MotionRecorder recorder) : INoti
     }
 }
 
+/// <summary>Collects the desk domain events (<see cref="DeskSwitched"/>, <see cref="DeskPowerChanged"/>) in arrival order.</summary>
+public sealed class DeskRecorder
+{
+    private readonly List<object> _events = [];
+
+    public object[] Events { get { lock (_events) { return [.. _events]; } } }
+
+    public void Add(object domainEvent)
+    {
+        lock (_events) { _events.Add(domainEvent); }
+    }
+}
+
+public sealed class RecordDeskEventsHandler(DeskRecorder recorder)
+    : INotificationHandler<DeskSwitched>, INotificationHandler<DeskPowerChanged>
+{
+    public ValueTask Handle(DeskSwitched notification, CancellationToken cancellationToken)
+    {
+        recorder.Add(notification);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask Handle(DeskPowerChanged notification, CancellationToken cancellationToken)
+    {
+        recorder.Add(notification);
+        return ValueTask.CompletedTask;
+    }
+}
+
 /// <summary>
 /// Tests the Home Assistant adapter at its seam: the domain events that reach the mediator, the status it reports
 /// and what it sends over a real WebSocket to an in-process fake Home Assistant. Time is controlled.
@@ -47,12 +76,15 @@ public sealed class RecordMotionDetectedHandler(MotionRecorder recorder) : INoti
 public sealed class HomeAssistantGatewayTests : IAsyncLifetime
 {
     private const string Motion = "binary_sensor.living_room_eingang_occupancy";
+    private const string DeskSwitch = "switch.living_room_schreibtisch";
+    private const string DeskPower = "sensor.living_room_schreibtisch_power";
 
     private static readonly DateTimeOffset T0 = new(2026, 11, 22, 10, 0, 0, TimeSpan.Zero);
 
     private readonly FakeHomeAssistantServer _server = new();
     private readonly FakeTimeProvider _time = new(T0);
     private readonly MotionRecorder _recorder = new();
+    private readonly DeskRecorder _deskRecorder = new();
     private ServiceProvider? _services;
     private IHomeAssistantGateway _gateway = null!;
 
@@ -73,7 +105,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         await _server.DisposeAsync();
     }
 
-    private async Task StartGatewayAsync(string? token = FakeHomeAssistantServer.ValidToken, string? url = null, string maxBackoff = "00:00:30", string? motionSensor = Motion)
+    private async Task StartGatewayAsync(string? token = FakeHomeAssistantServer.ValidToken, string? url = null, string maxBackoff = "00:00:30", string? motionSensor = Motion, string? deskSwitch = DeskSwitch, string? deskPower = DeskPower)
     {
         if (url is null)
         {
@@ -85,6 +117,8 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
             ["HomeAssistant:Url"] = url ?? _server.Url,
             ["HomeAssistant:Token"] = token,
             ["HomeAssistant:MotionSensorEntityId"] = motionSensor,
+            ["HomeAssistant:DeskSwitchEntityId"] = deskSwitch,
+            ["HomeAssistant:DeskPowerEntityId"] = deskPower,
             ["HomeAssistant:MaxBackoff"] = maxBackoff,
         };
 
@@ -93,6 +127,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.Critical));
         services.AddSingleton<TimeProvider>(_time);
         services.AddSingleton(_recorder);
+        services.AddSingleton(_deskRecorder);
         services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
         services.AddHome(configuration);
         _services = services.BuildServiceProvider();
@@ -123,7 +158,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
     private static async Task Quiet() => await Task.Delay(150);
 
     [Fact]
-    public async Task It_authenticates_and_subscribes_to_the_motion_sensor_changing_to_on()
+    public async Task It_authenticates_and_subscribes_to_state_changes_of_the_motion_sensor_and_the_desk()
     {
         await StartGatewayAsync();
         await WaitConnected();
@@ -131,9 +166,55 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         var connection = Assert.Single(_server.Connections);
         Assert.True(connection.Authenticated);
         Assert.Equal("state", connection.TriggerPlatform);
-        Assert.Equal(Motion, connection.TriggerEntityId);
-        Assert.Equal("on", connection.TriggerTo); // only motion, not "off"
+        Assert.Equal([Motion, DeskSwitch, DeskPower], connection.TriggerEntityIds);
+        Assert.True(connection.TriggerHasTo);
+        Assert.Null(connection.TriggerTo); // to: null = state changes only, no attribute changes
         Assert.Equal(["subscribe_trigger"], connection.Received);
+    }
+
+    [Fact]
+    public async Task Without_desk_entities_it_subscribes_to_the_motion_sensor_only()
+    {
+        await StartGatewayAsync(deskSwitch: null, deskPower: null);
+        await WaitConnected();
+
+        Assert.Equal([Motion], _server.Connections[0].TriggerEntityIds);
+    }
+
+    [Fact]
+    public async Task A_desk_power_change_is_published_with_watts_and_the_time_Home_Assistant_gives()
+    {
+        await StartGatewayAsync();
+        await WaitConnected();
+        var connection = _server.Connections[0];
+
+        await connection.SendTriggerEventAsync(DeskPower, "3.1", "83.4", T0.AddMinutes(1));
+        await connection.SendTriggerEventAsync(DeskPower, "83.4", "unavailable", T0.AddMinutes(2));
+        await Eventually(() => _deskRecorder.Events.Length == 2, "two power events");
+
+        Assert.Collection(
+            _deskRecorder.Events.Cast<DeskPowerChanged>(),
+            e => { Assert.Equal(83.4, e.Watts); Assert.Equal(T0.AddMinutes(1), e.ChangedAt); },
+            e => { Assert.Null(e.Watts); Assert.Equal(T0.AddMinutes(2), e.ChangedAt); });
+    }
+
+    [Fact]
+    public async Task A_desk_switch_change_is_published_as_on_or_off()
+    {
+        await StartGatewayAsync();
+        await WaitConnected();
+        var connection = _server.Connections[0];
+
+        await connection.SendTriggerEventAsync(DeskSwitch, "off", "on", T0.AddMinutes(1));
+        await connection.SendTriggerEventAsync(DeskSwitch, "on", "unavailable", T0.AddMinutes(2)); // not published
+        await connection.SendTriggerEventAsync(DeskSwitch, "unavailable", "off", T0.AddMinutes(3));
+        await Eventually(() => _deskRecorder.Events.Length >= 2, "two switch events");
+        await Quiet();
+
+        Assert.Collection(
+            _deskRecorder.Events.Cast<DeskSwitched>(),
+            e => { Assert.True(e.IsOn); Assert.Equal(T0.AddMinutes(1), e.ChangedAt); },
+            e => { Assert.False(e.IsOn); Assert.Equal(T0.AddMinutes(3), e.ChangedAt); });
     }
 
     [Fact]

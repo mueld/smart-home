@@ -142,6 +142,82 @@ public sealed class PresenceTests
             e => Assert.Equal(At(302), Assert.IsType<BecameAway>(e).BecameAwayAt),
             e => Assert.Equal(At(310), Assert.IsType<HomecomingDetected>(e).DetectedAt));
     }
+
+    [Fact]
+    public void Desk_over_50_watts_prevents_becoming_away()
+    {
+        var presence = Presence.Create(Start);
+        presence.RecordPower(80, At(0));
+
+        presence.RecordIpPresence(reachable: false, At(5));
+        presence.RecordIpPresence(reachable: false, At(30));
+
+        Assert.Equal(PresenceStatus.Present, presence.Status);
+        Assert.Empty(presence.DomainEvents);
+    }
+
+    [Fact]
+    public void Exactly_50_watts_does_not_prevent_becoming_away()
+    {
+        var presence = Presence.Create(Start);
+        presence.RecordPower(50, At(0));
+
+        presence.RecordIpPresence(reachable: false, At(2));
+
+        Assert.Equal(PresenceStatus.Away, presence.Status);
+    }
+
+    [Fact]
+    public void Becomes_away_two_minutes_after_the_desk_drops_to_50_watts_or_less()
+    {
+        var presence = Presence.Create(Start);
+        presence.RecordPower(80, At(0));
+        presence.RecordPower(5, At(10));
+
+        presence.RecordIpPresence(reachable: false, At(11));
+        Assert.Equal(PresenceStatus.Present, presence.Status);
+
+        presence.RecordIpPresence(reachable: false, At(12));
+        Assert.Equal(At(12), Assert.IsType<BecameAway>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
+    }
+
+    [Fact]
+    public void An_unknown_power_does_not_prevent_becoming_away()
+    {
+        var presence = Presence.Create(Start);
+        presence.RecordPower(80, At(0));
+        presence.RecordPower(null, At(1));
+
+        presence.RecordIpPresence(reachable: false, At(3));
+
+        Assert.Equal(PresenceStatus.Away, presence.Status);
+    }
+
+    [Fact]
+    public void Desk_over_50_watts_while_away_does_not_end_the_absence()
+    {
+        var presence = AwaySince(Start);
+
+        presence.RecordPower(80, At(30));
+        presence.RecordIpPresence(reachable: true, At(31));
+
+        Assert.Equal(PresenceStatus.Away, presence.Status);
+        Assert.Empty(presence.DomainEvents);
+    }
+
+    [Fact]
+    public void Power_recorded_while_away_counts_after_the_homecoming()
+    {
+        var presence = AwaySince(Start);
+        presence.RecordPower(80, At(30));
+        presence.RecordMotion(At(31));
+        presence.ClearEvents();
+
+        presence.RecordIpPresence(reachable: false, At(40));
+
+        Assert.Equal(PresenceStatus.Present, presence.Status);
+        Assert.Empty(presence.DomainEvents);
+    }
 }
 
 internal static class AggregateRootTestExtensions

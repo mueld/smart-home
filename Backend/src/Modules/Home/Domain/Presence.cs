@@ -28,6 +28,13 @@ public sealed class Presence : AggregateRoot
     /// </summary>
     public DateTimeOffset LastSeenAt { get; private set; }
 
+    /// <summary>Last reported power of the desk in watts; null while unknown (for example <c>unavailable</c>).</summary>
+    public double? DeskPower { get; private set; }
+
+    private bool IsDeskBusy => DeskPower > DeskBusyAbove;
+
+    public const double DeskBusyAbove = 50;
+
     public static Presence Create(DateTimeOffset at) => new() { Status = PresenceStatus.Present, LastSeenAt = at };
 
     public void RecordIpPresence(bool reachable, DateTimeOffset checkedAt)
@@ -37,13 +44,10 @@ public sealed class Presence : AggregateRoot
             return;
         }
 
-        if (reachable)
+        // A busy desk counts like an answering IP: power only arrives on change, so the check must look at it.
+        if (reachable || IsDeskBusy)
         {
-            if (checkedAt > LastSeenAt)
-            {
-                LastSeenAt = checkedAt;
-            }
-
+            SeenAt(checkedAt);
             return;
         }
 
@@ -51,6 +55,30 @@ public sealed class Presence : AggregateRoot
         {
             Status = PresenceStatus.Away;
             Raise(new BecameAway(Id, LastSeenAt + AwayAfter));
+        }
+    }
+
+    /// <summary>
+    /// Recorded in every state, so a busy desk is known after a homecoming. While away it does not end the absence:
+    /// only motion does.
+    /// </summary>
+    public void RecordPower(double? watts, DateTimeOffset reportedAt)
+    {
+        var wasBusy = IsDeskBusy;
+        DeskPower = watts;
+
+        // The away deadline starts when the desk stops being busy, not at the last IP answer before.
+        if (Status == PresenceStatus.Present && wasBusy && !IsDeskBusy)
+        {
+            SeenAt(reportedAt);
+        }
+    }
+
+    private void SeenAt(DateTimeOffset at)
+    {
+        if (at > LastSeenAt)
+        {
+            LastSeenAt = at;
         }
     }
 
