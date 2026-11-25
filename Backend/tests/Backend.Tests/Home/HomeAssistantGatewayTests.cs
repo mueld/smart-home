@@ -205,6 +205,61 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
             e => { Assert.Null(e.Watts); Assert.Equal(T0.AddMinutes(2), e.ChangedAt); });
     }
 
+    [Fact]
+    public async Task Messages_as_recorded_from_Home_Assistant_are_published()
+    {
+        const string switchedOn = """
+        {"id": 7, "type": "event", "event": {"variables": {"trigger": {
+          "id": "0", "idx": "0", "alias": null, "platform": "state", "entity_id": "switch.living_room_schreibtisch",
+          "from_state": {"entity_id": "switch.living_room_schreibtisch", "state": "off", "attributes": {"device_class": "outlet", "friendly_name": "Licht"},
+            "last_changed": "2026-11-25T20:12:29.475067+00:00", "last_reported": "2026-11-25T20:12:29.475067+00:00", "last_updated": "2026-11-25T20:12:29.475067+00:00",
+            "context": {"id": "x", "parent_id": null, "user_id": null}},
+          "to_state": {"entity_id": "switch.living_room_schreibtisch", "state": "on", "attributes": {"device_class": "outlet", "friendly_name": "Licht"},
+            "last_changed": "2026-11-25T20:12:30.776414+00:00", "last_reported": "2026-11-25T20:12:30.776414+00:00", "last_updated": "2026-11-25T20:12:30.776414+00:00",
+            "context": {"id": "x", "parent_id": null, "user_id": null}},
+          "for": null, "attribute": null, "description": "state of switch.living_room_schreibtisch"}},
+          "context": {"id": "x", "parent_id": null, "user_id": null}}}
+        """;
+        const string powerChanged = """
+        {"id": 7, "type": "event", "event": {"variables": {"trigger": {
+          "id": "0", "idx": "0", "alias": null, "platform": "state", "entity_id": "sensor.living_room_schreibtisch_power",
+          "from_state": {"entity_id": "sensor.living_room_schreibtisch_power", "state": "3.8", "attributes": {"state_class": "measurement", "unit_of_measurement": "W", "device_class": "power"},
+            "last_changed": "2026-11-25T20:12:16.524623+00:00", "last_reported": "2026-11-25T20:12:16.524623+00:00", "last_updated": "2026-11-25T20:12:16.524623+00:00",
+            "context": {"id": "x", "parent_id": null, "user_id": null}},
+          "to_state": {"entity_id": "sensor.living_room_schreibtisch_power", "state": "3.7", "attributes": {"state_class": "measurement", "unit_of_measurement": "W", "device_class": "power"},
+            "last_changed": "2026-11-25T20:12:21.607213+00:00", "last_reported": "2026-11-25T20:12:21.607213+00:00", "last_updated": "2026-11-25T20:12:21.607213+00:00",
+            "context": {"id": "x", "parent_id": null, "user_id": null}},
+          "for": null, "attribute": null, "description": "state of sensor.living_room_schreibtisch_power"}},
+          "context": {"id": "x", "parent_id": null, "user_id": null}}}
+        """;
+        const string motionCleared = """
+        {"id": 7, "type": "event", "event": {"variables": {"trigger": {
+          "id": "0", "idx": "0", "alias": null, "platform": "state", "entity_id": "binary_sensor.living_room_eingang_occupancy",
+          "from_state": {"entity_id": "binary_sensor.living_room_eingang_occupancy", "state": "on", "attributes": {"device_class": "occupancy"},
+            "last_changed": "2026-11-25T20:12:13.942088+00:00", "last_reported": "2026-11-25T20:12:13.942088+00:00", "last_updated": "2026-11-25T20:12:13.942088+00:00",
+            "context": {"id": "x", "parent_id": null, "user_id": null}},
+          "to_state": {"entity_id": "binary_sensor.living_room_eingang_occupancy", "state": "off", "attributes": {"device_class": "occupancy"},
+            "last_changed": "2026-11-25T20:12:15.132670+00:00", "last_reported": "2026-11-25T20:12:15.132670+00:00", "last_updated": "2026-11-25T20:12:15.132670+00:00",
+            "context": {"id": "x", "parent_id": null, "user_id": null}},
+          "for": null, "attribute": null, "description": "state of binary_sensor.living_room_eingang_occupancy"}},
+          "context": {"id": "x", "parent_id": null, "user_id": null}}}
+        """;
+        await StartGatewayAsync();
+        await WaitConnected();
+        var connection = _server.Connections[0];
+
+        await connection.SendAsync(motionCleared);
+        await connection.SendAsync(switchedOn);
+        await connection.SendAsync(powerChanged);
+        await Eventually(() => _deskRecorder.Events.Length == 2, "the desk events");
+
+        Assert.Collection(
+            _deskRecorder.Events,
+            e => Assert.Equal(new DateTimeOffset(2026, 11, 25, 20, 12, 30, TimeSpan.Zero).AddTicks(7764140), Assert.IsType<DeskSwitched>(e).ChangedAt),
+            e => Assert.Equal(3.7, Assert.IsType<DeskPowerChanged>(e).Watts));
+        Assert.Empty(_recorder.Events);
+    }
+
     private void SetStates(DateTimeOffset at, string motion = "on", string deskSwitch = "on", string deskPower = "83.4")
     {
         _server.States[Motion] = FakeHomeAssistantServer.State(Motion, motion, at);
