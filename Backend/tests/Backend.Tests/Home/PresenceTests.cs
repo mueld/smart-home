@@ -7,6 +7,8 @@ public sealed class PresenceTests
 {
     private static readonly DateTimeOffset Start = new(2026, 11, 23, 17, 0, 0, TimeSpan.Zero);
 
+    private static readonly DeskBusyThreshold Threshold = new(50);
+
     private static DateTimeOffset At(int minutes, int seconds = 0) => Start.AddMinutes(minutes).AddSeconds(seconds);
 
     private static Presence AwaySince(DateTimeOffset lastSeen)
@@ -144,10 +146,10 @@ public sealed class PresenceTests
     }
 
     [Fact]
-    public void Desk_over_50_watts_prevents_becoming_away()
+    public void A_busy_desk_prevents_becoming_away()
     {
         var presence = Presence.Create(Start);
-        presence.RecordPower(80, At(0));
+        presence.RecordPower(80, Threshold, At(0));
 
         presence.RecordIpPresence(reachable: false, At(5));
         presence.RecordIpPresence(reachable: false, At(30));
@@ -156,11 +158,14 @@ public sealed class PresenceTests
         Assert.Empty(presence.DomainEvents);
     }
 
-    [Fact]
-    public void Exactly_50_watts_does_not_prevent_becoming_away()
+    [Theory]
+    [InlineData(50.0, 50.0)]
+    [InlineData(100.0, 80.0)]
+    [InlineData(50.0, null)]
+    public void A_desk_not_above_the_threshold_does_not_prevent_becoming_away(double threshold, double? watts)
     {
         var presence = Presence.Create(Start);
-        presence.RecordPower(50, At(0));
+        presence.RecordPower(watts, new DeskBusyThreshold(threshold), At(0));
 
         presence.RecordIpPresence(reachable: false, At(2));
 
@@ -168,11 +173,11 @@ public sealed class PresenceTests
     }
 
     [Fact]
-    public void Becomes_away_two_minutes_after_the_desk_drops_to_50_watts_or_less()
+    public void Becomes_away_two_minutes_after_the_desk_stops_being_busy()
     {
         var presence = Presence.Create(Start);
-        presence.RecordPower(80, At(0));
-        presence.RecordPower(5, At(10));
+        presence.RecordPower(80, Threshold, At(0));
+        presence.RecordPower(5, Threshold, At(10));
 
         presence.RecordIpPresence(reachable: false, At(11));
         Assert.Equal(PresenceStatus.Present, presence.Status);
@@ -182,23 +187,48 @@ public sealed class PresenceTests
     }
 
     [Fact]
-    public void An_unknown_power_does_not_prevent_becoming_away()
+    public void Switching_off_a_busy_desk_restarts_the_away_deadline()
     {
         var presence = Presence.Create(Start);
-        presence.RecordPower(80, At(0));
-        presence.RecordPower(null, At(1));
+        presence.RecordPower(80, Threshold, At(0));
+        presence.DeskHasBeenSwitchedOff(At(10));
 
-        presence.RecordIpPresence(reachable: false, At(3));
+        presence.RecordIpPresence(reachable: false, At(11));
+        Assert.Equal(PresenceStatus.Present, presence.Status);
 
-        Assert.Equal(PresenceStatus.Away, presence.Status);
+        presence.RecordIpPresence(reachable: false, At(12));
+        Assert.Equal(At(12), Assert.IsType<BecameAway>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
     }
 
     [Fact]
-    public void Desk_over_50_watts_while_away_does_not_end_the_absence()
+    public void An_idle_desk_after_the_deadline_makes_away()
+    {
+        var presence = Presence.Create(Start);
+
+        presence.RecordPower(5, Threshold, At(5));
+
+        Assert.Equal(PresenceStatus.Away, presence.Status);
+        Assert.Equal(At(2), Assert.IsType<BecameAway>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
+    }
+
+    [Fact]
+    public void An_idle_or_switched_off_desk_while_away_raises_nothing()
     {
         var presence = AwaySince(Start);
 
-        presence.RecordPower(80, At(30));
+        presence.RecordPower(5, Threshold, At(30));
+        presence.DeskHasBeenSwitchedOff(At(31));
+
+        Assert.Equal(PresenceStatus.Away, presence.Status);
+        Assert.Empty(presence.DomainEvents);
+    }
+
+    [Fact]
+    public void A_busy_desk_while_away_does_not_end_the_absence()
+    {
+        var presence = AwaySince(Start);
+
+        presence.RecordPower(80, Threshold, At(30));
         presence.RecordIpPresence(reachable: true, At(31));
 
         Assert.Equal(PresenceStatus.Away, presence.Status);
@@ -209,7 +239,7 @@ public sealed class PresenceTests
     public void Power_recorded_while_away_counts_after_the_homecoming()
     {
         var presence = AwaySince(Start);
-        presence.RecordPower(80, At(30));
+        presence.RecordPower(80, Threshold, At(30));
         presence.RecordMotion(At(31));
         presence.ClearEvents();
 

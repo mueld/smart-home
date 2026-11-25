@@ -54,8 +54,15 @@ public sealed class DeskRecorder
 }
 
 public sealed class RecordDeskEventsHandler(DeskRecorder recorder)
-    : INotificationHandler<DeskSwitched>, INotificationHandler<DeskPowerChanged>
+    : INotificationHandler<DeskSwitched>, INotificationHandler<DeskHasBeenSwitchedOffDomainEvent>,
+        INotificationHandler<DeskPowerChanged>
 {
+    public ValueTask Handle(DeskHasBeenSwitchedOffDomainEvent notification, CancellationToken cancellationToken)
+    {
+        recorder.Add(notification);
+        return ValueTask.CompletedTask;
+    }
+
     public ValueTask Handle(DeskSwitched notification, CancellationToken cancellationToken)
     {
         recorder.Add(notification);
@@ -285,7 +292,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task A_desk_switch_change_is_published_as_on_or_off()
+    public async Task A_desk_switch_change_is_published_as_on_or_off_and_switching_off_also_as_its_own_event()
     {
         await StartGatewayAsync();
         await WaitConnected();
@@ -294,13 +301,14 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         await connection.SendTriggerEventAsync(DeskSwitch, "off", "on", T0.AddMinutes(1));
         await connection.SendTriggerEventAsync(DeskSwitch, "on", "unavailable", T0.AddMinutes(2)); // not published
         await connection.SendTriggerEventAsync(DeskSwitch, "unavailable", "off", T0.AddMinutes(3));
-        await Eventually(() => _deskRecorder.Events.Length >= 2, "two switch events");
+        await Eventually(() => _deskRecorder.Events.Length >= 3, "two switch events and the switch-off");
         await Quiet();
 
         Assert.Collection(
-            _deskRecorder.Events.Cast<DeskSwitched>(),
-            e => { Assert.True(e.IsOn); Assert.Equal(T0.AddMinutes(1), e.ChangedAt); },
-            e => { Assert.False(e.IsOn); Assert.Equal(T0.AddMinutes(3), e.ChangedAt); });
+            _deskRecorder.Events,
+            e => { var on = Assert.IsType<DeskSwitched>(e); Assert.True(on.IsOn); Assert.Equal(T0.AddMinutes(1), on.ChangedAt); },
+            e => { var off = Assert.IsType<DeskSwitched>(e); Assert.False(off.IsOn); Assert.Equal(T0.AddMinutes(3), off.ChangedAt); },
+            e => Assert.Equal(T0.AddMinutes(3), Assert.IsType<DeskHasBeenSwitchedOffDomainEvent>(e).ChangedAt));
     }
 
     [Fact]

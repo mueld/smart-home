@@ -11,6 +11,7 @@ public static class HomeModule
     public static IServiceCollection AddHome(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOptions<HomeAssistantOptions>().Bind(configuration.GetSection(HomeAssistantOptions.SectionName));
+        services.AddOptions<PresenceOptions>().Bind(configuration.GetSection(PresenceOptions.SectionName));
         services.TryAddSingleton(TimeProvider.System);
 
         services.AddSingleton<HomeAssistantGateway>();
