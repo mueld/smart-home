@@ -1,4 +1,5 @@
 using Backend.Kernel;
+using Backend.Modules.Home.Features;
 using Backend.Modules.Home.Infrastructure.HomeAssistant;
 using Backend.Modules.Home.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
@@ -21,6 +22,7 @@ public static class HomeModule
         services.AddHostedService(provider => provider.GetRequiredService<HomeAssistantGateway>());
 
         services.AddModuleDbContext<HomeDbContext>(typeof(HomeModule).Namespace!, configuration.GetConnectionString("database")!, HomeDbContext.Schema);
+        services.AddScoped<IHomeDbContext>(provider => provider.GetRequiredService<HomeDbContext>());
 
         return services;
     }

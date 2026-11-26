@@ -1,3 +1,4 @@
+using Backend.Kernel.Abstractions;
 using Backend.Modules.Home.Domain;
 using Backend.Modules.Home.Features;
 using Microsoft.EntityFrameworkCore;
@@ -10,6 +11,8 @@ public sealed class HomeDbContext(DbContextOptions<HomeDbContext> options) : DbC
     public static readonly string Schema = "home";
 
     public DbSet<Presence> Presences => Set<Presence>();
+
+    DbContext IDbContext.DbContext => this;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
