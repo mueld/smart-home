@@ -10,16 +10,16 @@ using Microsoft.Extensions.Time.Testing;
 
 namespace Backend.Tests.Home;
 
-/// <summary>Collects the <see cref="MotionDetected"/> domain events that reach the mediator; can be told to fail.</summary>
+/// <summary>Collects the <see cref="MotionDetectedDomainEvent"/> domain events that reach the mediator; can be told to fail.</summary>
 public sealed class MotionRecorder
 {
-    private readonly List<MotionDetected> _events = [];
+    private readonly List<MotionDetectedDomainEvent> _events = [];
 
     public int FailuresLeft { get; set; }
 
-    public MotionDetected[] Events { get { lock (_events) { return [.. _events]; } } }
+    public MotionDetectedDomainEvent[] Events { get { lock (_events) { return [.. _events]; } } }
 
-    public void Add(MotionDetected motion)
+    public void Add(MotionDetectedDomainEvent motion)
     {
         if (FailuresLeft > 0)
         {
@@ -31,9 +31,9 @@ public sealed class MotionRecorder
     }
 }
 
-public sealed class RecordMotionDetectedHandler(MotionRecorder recorder) : INotificationHandler<MotionDetected>
+public sealed class RecordMotionDetectedHandler(MotionRecorder recorder) : INotificationHandler<MotionDetectedDomainEvent>
 {
-    public ValueTask Handle(MotionDetected notification, CancellationToken cancellationToken)
+    public ValueTask Handle(MotionDetectedDomainEvent notification, CancellationToken cancellationToken)
     {
         recorder.Add(notification);
         return ValueTask.CompletedTask;
@@ -410,7 +410,6 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         await Eventually(() => _recorder.Events.Length == 1, "the domain event");
 
         var motion = Assert.Single(_recorder.Events);
-        Assert.Equal(Motion, motion.EntityId);
         Assert.Equal(changedAt, motion.DetectedAt);
         Assert.NotEqual(Guid.Empty, motion.Id);
     }
@@ -439,7 +438,6 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         await Eventually(() => _recorder.Events.Length == 1, "the real event");
 
         var motion = Assert.Single(_recorder.Events);
-        Assert.Equal(Motion, motion.EntityId);
         Assert.Equal(new DateTimeOffset(2026, 11, 22, 18, 13, 46, TimeSpan.Zero).AddTicks(3041220), motion.DetectedAt);
     }
 

@@ -8,4 +8,4 @@ namespace Backend.Modules.Home.Domain;
 /// Published through the mediator by the Home Assistant gateway; the slice that handles it turns it into the
 /// command <c>RecordMotion</c> (AD-18, AD-19).
 /// </summary>
-public sealed record MotionDetected(string EntityId, DateTimeOffset DetectedAt) : DomainEvent;
+public sealed record MotionDetectedDomainEvent(DateTimeOffset DetectedAt) : DomainEvent;

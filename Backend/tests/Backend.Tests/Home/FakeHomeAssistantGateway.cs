@@ -5,7 +5,7 @@ namespace Backend.Tests.Home;
 /// <summary>
 /// The fake of <see cref="IHomeAssistantGateway"/> for the tests of other Home slices: tests set the connection
 /// status; no Home Assistant, no network. Motion needs no fake: a test publishes
-/// <see cref="Backend.Modules.Home.Domain.MotionDetected"/> through the mediator.
+/// <see cref="Backend.Modules.Home.Domain.MotionDetectedDomainEvent"/> through the mediator.
 /// </summary>
 public sealed class FakeHomeAssistantGateway : IHomeAssistantGateway
 {

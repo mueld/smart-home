@@ -14,7 +14,7 @@ namespace Backend.Modules.Home.Infrastructure.HomeAssistant;
 /// <summary>
 /// The one Home Assistant adapter of the Home module (AD-18). Runs in the background and keeps one WebSocket
 /// connection: authenticates, subscribes to state changes of the motion sensor and the desk (switch and power), and
-/// publishes them through the mediator as <see cref="MotionDetected"/> (only changes to <c>on</c>),
+/// publishes them through the mediator as <see cref="MotionDetectedDomainEvent"/> (only changes to <c>on</c>),
 /// <see cref="DeskSwitched"/>, <see cref="DeskHasBeenSwitchedOffDomainEvent"/> (additionally, for changes to
 /// <c>off</c>) and <see cref="DeskPowerChanged"/>.
 /// Home Assistant delivers events at most once and without replay: motion during a lost connection is lost,
@@ -227,7 +227,7 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
         if (change.EntityId == _options.MotionSensorEntityId)
         {
             return IsOnState(change)
-                ? PublishAsync(new MotionDetected(change.EntityId, change.ChangedAt), change, cancellationToken)
+                ? PublishAsync(new MotionDetectedDomainEvent(change.ChangedAt), change, cancellationToken)
                 : Task.CompletedTask;
         }
 

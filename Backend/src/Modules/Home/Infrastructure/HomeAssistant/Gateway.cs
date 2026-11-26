@@ -23,7 +23,7 @@ public sealed record GatewayStatus(GatewayConnectionState State, DateTimeOffset 
 
 /// <summary>
 /// The Home Assistant gateway (AD-18). It publishes what it receives as domain events through the mediator
-/// (<see cref="Domain.MotionDetected"/>) and only reports here whether it is connected. Switching sockets
+/// (<see cref="Domain.MotionDetectedDomainEvent"/>) and only reports here whether it is connected. Switching sockets
 /// (service calls) is added by a later story.
 /// </summary>
 public interface IHomeAssistantGateway
