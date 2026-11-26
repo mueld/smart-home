@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
+using System.Net.Http.Headers;
 
 namespace Backend.Modules.Home;
 
@@ -17,6 +19,15 @@ public static class HomeModule
         services.AddOptions<HomeAssistantOptions>().Bind(configuration.GetSection(HomeAssistantOptions.SectionName));
         services.AddOptions<PresenceOptions>().Bind(configuration.GetSection(PresenceOptions.SectionName));
         services.TryAddSingleton(TimeProvider.System);
+
+        // Named, not typed: the gateway is a singleton and creates a client per use, so the factory can rotate handlers.
+        services.AddHttpClient(HomeAssistantGateway.HttpClientName, (provider, client) =>
+        {
+            var options = provider.GetRequiredService<IOptions<HomeAssistantOptions>>().Value;
+            client.BaseAddress = new Uri(options.Url.TrimEnd('/') + "/");
+            client.Timeout = options.ConnectTimeout;
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", options.Token);
+        });
 
         services.AddSingleton<HomeAssistantGateway>();
         services.AddSingleton<IHomeAssistantGateway>(provider => provider.GetRequiredService<HomeAssistantGateway>());

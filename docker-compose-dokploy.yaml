@@ -29,6 +29,9 @@ services:
       HomeAssistant__MotionSensorEntityId: ${HA_MOTION_SENSOR_ENTITY_ID:-binary_sensor.living_room_eingang_occupancy}
       HomeAssistant__DeskSwitchEntityId: ${HA_DESK_SWITCH_ENTITY_ID:-switch.living_room_schreibtisch}
       HomeAssistant__DeskPowerEntityId: ${HA_DESK_POWER_ENTITY_ID:-sensor.living_room_schreibtisch_power}
+      # Optional: beliebig viele weitere Steckdosen (z. B. Licht), kommagetrennt; werden zusammen mit dem
+      # Schreibtisch ein- und ausgeschaltet.
+      HomeAssistant__SwitchEntityIds: ${HA_SWITCH_ENTITY_IDS:-}
       # Optional: ab dieser Leistung gilt der Schreibtisch als benutzt (Standard 50).
       Presence__DeskBusyAboveWatts: ${DESK_BUSY_ABOVE_WATTS:-50}
     # Home Assistant läuft im Host-Netzwerk; so erreicht das Backend es unter

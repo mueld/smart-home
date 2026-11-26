@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using System.Buffers;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Text.Json;
 using static Backend.Modules.Home.Infrastructure.HomeAssistant.HomeAssistantProtocol;
@@ -22,8 +23,12 @@ namespace Backend.Modules.Home.Infrastructure.HomeAssistant;
 /// </summary>
 internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGateway
 {
+    /// <summary>Name of the client for the REST API, configured in <see cref="HomeModule.AddHome"/>.</summary>
+    public const string HttpClientName = "HomeAssistant";
+
     private readonly HomeAssistantOptions _options;
     private readonly IServiceScopeFactory _scopes;
+    private readonly IHttpClientFactory _httpClientFactory;
     private readonly TimeProvider _time;
     private readonly ILogger<HomeAssistantGateway> _logger;
 
@@ -34,12 +39,14 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
 
     public HomeAssistantGateway(
         IOptions<HomeAssistantOptions> options,
+        IHttpClientFactory httpClientFactory,
         IServiceScopeFactory scopes,
         TimeProvider time,
         ILogger<HomeAssistantGateway> logger)
     {
         _options = options.Value;
         _scopes = scopes;
+        _httpClientFactory = httpClientFactory;
         _time = time;
         _logger = logger;
         _status = new GatewayStatus(
@@ -48,6 +55,33 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
     }
 
     public GatewayStatus Status => _status;
+
+    public Task TurnAllSwitchesOnAsync(CancellationToken cancellationToken) => CallSwitchServiceAsync("turn_on", cancellationToken);
+
+    public Task TurnAllSwitchesOffAsync(CancellationToken cancellationToken) => CallSwitchServiceAsync("turn_off", cancellationToken);
+
+    /// <summary>A REST service call, independent of the WebSocket connection. It names a target state, never a toggle (AD-9).</summary>
+    private async Task CallSwitchServiceAsync(string service, CancellationToken cancellationToken)
+    {
+        var entityIds = _options.AllSwitchEntityIds;
+        if (!_options.IsConfigured || entityIds.Count == 0)
+        {
+            _logger.LogWarning("Not calling switch.{Service}: the gateway or the switches are not configured.", service);
+            return;
+        }
+
+        using var http = _httpClientFactory.CreateClient(HttpClientName);
+        using var response = await http.PostAsJsonAsync($"api/services/switch/{service}", new { entity_id = entityIds }, cancellationToken);
+        if(response.IsSuccessStatusCode)
+        {
+            _logger.LogInformation("Called switch.{Service} for {EntityIds}.", service, string.Join(",", entityIds));
+        }
+        else
+        {
+            _logger.LogError("Switches: {EntityIds} could not be switched {Service}: {Reason}", string.Join(",",entityIds), service,await response.Content.ReadAsStringAsync(cancellationToken));
+        }
+        
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -166,8 +200,7 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
     /// </summary>
     private async Task PublishCurrentStatesAsync(CancellationToken cancellationToken)
     {
-        using var http = new HttpClient { BaseAddress = new Uri(_options.Url.TrimEnd('/') + "/"), Timeout = _options.ConnectTimeout };
-        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.Token);
+        using var http = _httpClientFactory.CreateClient(HttpClientName);
 
         foreach (var entityId in _options.SubscribedEntityIds)
         {

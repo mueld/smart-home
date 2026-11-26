@@ -111,6 +111,8 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
     private const string Motion = "binary_sensor.living_room_eingang_occupancy";
     private const string DeskSwitch = "switch.living_room_schreibtisch";
     private const string DeskPower = "sensor.living_room_schreibtisch_power";
+    private const string LightSwitch = "switch.living_room_licht";
+    private const string FanSwitch = "switch.living_room_ventilator";
 
     private static readonly DateTimeOffset T0 = new(2026, 11, 22, 10, 0, 0, TimeSpan.Zero);
 
@@ -141,7 +143,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         await _server.DisposeAsync();
     }
 
-    private async Task StartGatewayAsync(string? token = FakeHomeAssistantServer.ValidToken, string? url = null, string maxBackoff = "00:00:30", string? motionSensor = Motion, string? deskSwitch = DeskSwitch, string? deskPower = DeskPower)
+    private async Task StartGatewayAsync(string? token = FakeHomeAssistantServer.ValidToken, string? url = null, string maxBackoff = "00:00:30", string? motionSensor = Motion, string? deskSwitch = DeskSwitch, string? deskPower = DeskPower, string? switches = null)
     {
         if (url is null)
         {
@@ -156,6 +158,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
             ["HomeAssistant:DeskSwitchEntityId"] = deskSwitch,
             ["HomeAssistant:DeskPowerEntityId"] = deskPower,
             ["HomeAssistant:MaxBackoff"] = maxBackoff,
+            ["HomeAssistant:SwitchEntityIds"] = switches,
         };
 
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
@@ -557,6 +560,62 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         _time.Advance(TimeSpan.FromSeconds(1));
 
         await WaitConnected();
+    }
+
+    [Fact]
+    public async Task Turning_all_switches_on_calls_the_service_for_the_desk_and_the_configured_switches()
+    {
+        // spaces, a duplicate of the desk and empty entries are ignored
+        await StartGatewayAsync(switches: $" {LightSwitch}, {DeskSwitch},,{FanSwitch} ,");
+
+        await _gateway.TurnAllSwitchesOnAsync(CancellationToken.None);
+
+        var call = Assert.Single(_server.ServiceCalls);
+        Assert.Equal("turn_on", call.Service);
+        Assert.Equal([DeskSwitch, LightSwitch, FanSwitch], call.EntityIds);
+    }
+
+    [Fact]
+    public async Task Turning_all_switches_off_calls_the_service_for_the_desk_and_the_configured_switches()
+    {
+        await StartGatewayAsync(switches: LightSwitch);
+
+        await _gateway.TurnAllSwitchesOffAsync(CancellationToken.None);
+
+        var call = Assert.Single(_server.ServiceCalls);
+        Assert.Equal("turn_off", call.Service);
+        Assert.Equal([DeskSwitch, LightSwitch], call.EntityIds);
+    }
+
+    [Fact]
+    public async Task Without_any_switch_no_service_is_called()
+    {
+        await StartGatewayAsync(deskSwitch: null);
+
+        await _gateway.TurnAllSwitchesOffAsync(CancellationToken.None);
+
+        Assert.Empty(_server.ServiceCalls);
+    }
+
+    [Fact]
+    public async Task Without_a_token_switching_does_nothing()
+    {
+        await StartGatewayAsync(token: null);
+
+        await _gateway.TurnAllSwitchesOnAsync(CancellationToken.None);
+
+        Assert.Empty(_server.ServiceCalls);
+    }
+
+    [Fact]
+    public async Task A_refused_service_call_is_not_an_exception()
+    {
+        await StartGatewayAsync();
+        _server.FailServiceCalls = true;
+
+        await _gateway.TurnAllSwitchesOnAsync(CancellationToken.None); // only logged
+
+        Assert.Empty(_server.ServiceCalls);
     }
 
     [Theory]

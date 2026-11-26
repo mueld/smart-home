@@ -20,6 +20,18 @@ public sealed class HomeAssistantOptions
     /// <summary>Optional: the power sensor of the desk socket, for example <c>sensor.living_room_schreibtisch_power</c>.</summary>
     public string DeskPowerEntityId { get; set; } = "";
 
+    /// <summary>
+    /// Optional: any number of further sockets to switch besides the desk, comma-separated, for example
+    /// <c>switch.living_room_licht,switch.living_room_ventilator</c>. One string, so one environment variable in Compose is enough.
+    /// </summary>
+    public string SwitchEntityIds { get; set; } = "";
+
+    /// <summary>All sockets the gateway switches: the desk and <see cref="SwitchEntityIds"/>.</summary>
+    public IReadOnlyList<string> AllSwitchEntityIds =>
+        [.. $"{DeskSwitchEntityId},{SwitchEntityIds}"
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct()];
+
     /// <summary>The entities of the one state-trigger subscription: the motion sensor and the desk entities that are set.</summary>
     public IReadOnlyList<string> SubscribedEntityIds =>
         [.. new[] { MotionSensorEntityId, DeskSwitchEntityId, DeskPowerEntityId }.Where(id => !string.IsNullOrWhiteSpace(id))];

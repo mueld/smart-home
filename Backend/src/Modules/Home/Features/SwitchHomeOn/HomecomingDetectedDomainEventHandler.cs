@@ -1,14 +1,13 @@
-﻿using Backend.Kernel.Abstractions;
+using Backend.Kernel.Abstractions;
 using Backend.Modules.Home.Domain;
-using Microsoft.Extensions.Logging;
+using Mediator;
 
 namespace Backend.Modules.Home.Features.SwitchHomeOn;
 
-public class HomecomingDetectedDomainEventHandler(ILogger<HomecomingDetectedDomainEventHandler> logger) : IDomainEventHandler<HomecomingDetectedDomainEvent>
+public class HomecomingDetectedDomainEventHandler(ISender sender) : IDomainEventHandler<HomecomingDetectedDomainEvent>
 {
-    public ValueTask Handle(HomecomingDetectedDomainEvent notification, CancellationToken cancellationToken)
+    public async ValueTask Handle(HomecomingDetectedDomainEvent notification, CancellationToken cancellationToken)
     {
-        logger.LogWarning("User is coming home");
-        return ValueTask.CompletedTask;
+        await sender.Send(new SwitchHomeOnCommand(), cancellationToken);
     }
 }

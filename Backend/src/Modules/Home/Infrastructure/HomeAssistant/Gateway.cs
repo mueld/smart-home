@@ -23,10 +23,20 @@ public sealed record GatewayStatus(GatewayConnectionState State, DateTimeOffset 
 
 /// <summary>
 /// The Home Assistant gateway (AD-18). It publishes what it receives as domain events through the mediator
-/// (<see cref="Domain.MotionDetectedDomainEvent"/>) and only reports here whether it is connected. Switching sockets
-/// (service calls) is added by a later story.
+/// (<see cref="Domain.MotionDetectedDomainEvent"/>), reports here whether it is connected and switches the sockets.
 /// </summary>
 public interface IHomeAssistantGateway
 {
     GatewayStatus Status { get; }
+
+    /// <summary>
+    /// Switches every configured socket on (<see cref="HomeAssistantOptions.AllSwitchEntityIds"/>), never other switches
+    /// Home Assistant knows. Does nothing if the gateway is not configured or has no socket. A call Home Assistant refuses
+    /// is only logged.
+    /// </summary>
+    /// <exception cref="HttpRequestException">Home Assistant is not reachable.</exception>
+    Task TurnAllSwitchesOnAsync(CancellationToken cancellationToken);
+
+    /// <summary>Like <see cref="TurnAllSwitchesOnAsync"/>, but switches off.</summary>
+    Task TurnAllSwitchesOffAsync(CancellationToken cancellationToken);
 }

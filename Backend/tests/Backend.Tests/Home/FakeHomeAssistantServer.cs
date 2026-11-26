@@ -42,6 +42,11 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
     /// <summary>Subscriptions and REST reads across all connections, in order ("subscribe_trigger", "GET entity").</summary>
     public System.Collections.Concurrent.ConcurrentQueue<string> Log { get; } = new();
 
+    /// <summary>Service calls received by <c>POST /api/services/switch/{service}</c>, in order.</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<(string Service, string[] EntityIds)> ServiceCalls { get; } = new();
+
+    public bool FailServiceCalls { get; set; }
+
     public string Url => $"http://127.0.0.1:{_port}";
 
     public async Task StartAsync()
@@ -63,6 +68,21 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
             return States.TryGetValue(entityId, out var state)
                 ? Results.Text(state, "application/json")
                 : Results.NotFound(new { message = "Entity not found." });
+        });
+        _app.MapPost("/api/services/switch/{service}", (string service, JsonElement body, HttpContext context) =>
+        {
+            if (context.Request.Headers.Authorization.ToString() != $"Bearer {Token}")
+            {
+                return Results.Unauthorized();
+            }
+
+            if (FailServiceCalls)
+            {
+                return Results.StatusCode(StatusCodes.Status500InternalServerError);
+            }
+
+            ServiceCalls.Enqueue((service, [.. body.GetProperty("entity_id").EnumerateArray().Select(e => e.GetString()!)]));
+            return Results.Text("[]", "application/json");
         });
         await _app.StartAsync();
 
