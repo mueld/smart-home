@@ -2,6 +2,7 @@ using Backend.Kernel;
 using Backend.Modules.Home.Features.Shared;
 using Backend.Modules.Home.Infrastructure.HomeAssistant;
 using Backend.Modules.Home.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -25,5 +26,15 @@ public static class HomeModule
         services.AddScoped<IHomeDbContext>(provider => provider.GetRequiredService<HomeDbContext>());
 
         return services;
+    }
+
+    public static async Task MigrateHomeAsync(
+        this IServiceProvider serviceProvider,
+        CancellationToken cancellationToken
+    )
+    {
+        using IServiceScope scope = serviceProvider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<HomeDbContext>();
+        await dbContext.Database.MigrateAsync(cancellationToken);
     }
 }
