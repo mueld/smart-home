@@ -88,7 +88,7 @@ _Code_: `Present`
 _Avoid_: zu Hause, Home
 
 **Nachhause-Kommen**:
-Die erste Bewegung des Bewegungsmelders nach einer Abwesenheit, nachdem die IP ins Netzwerk zurückgekehrt ist. Es beendet die Abwesenheit und richtet die Wohnung ein. Die Rückkehr der IP allein ist noch kein Nachhause-Kommen.
+Die erste Bewegung des Bewegungsmelders, während der Bewohner abwesend ist. Es beendet die Abwesenheit und richtet die Wohnung ein. Die IP spielt dafür keine Rolle: Die Rückkehr der IP allein ist kein Nachhause-Kommen und beendet die Abwesenheit nicht.
 _Code_: `Homecoming` (Event `HomecomingDetected`)
 _Avoid_: Heimkommen, Ankunft, Arrival
 

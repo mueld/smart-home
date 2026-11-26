@@ -45,8 +45,8 @@ sources: []
   - **intent:** Das System empfängt Bewegung vom Bewegungsmelder am Eingang, schaltet Steckdosen ein und aus und kennt deren gemessene Leistung; beide Geräte sind über Matter angebunden, und es gibt n Steckdosen.
   - **success:** Eine Bewegung am Melder erscheint im Backend als Ereignis mit fachlichem Zeitpunkt; ein Schaltbefehl für eine Steckdose beschreibt den Zielzustand (ein oder aus) und erreicht das Gerät; die zuletzt gemeldete Leistung einer Steckdose ist abrufbar.
 - **CAP-11**
-  - **intent:** Das System erkennt das Nachhause-Kommen: Nach einer Abwesenheit kehrt die IP ins Netzwerk zurück, und danach wird der Bewegungsmelder am Eingang aktiv.
-  - **success:** Die erste Bewegung nach der Rückkehr der IP löst genau ein Nachhause-Kommen aus und beendet die Abwesenheit; die Rückkehr der IP allein löst nichts aus, und eine Bewegung bei Anwesenheit ebenfalls nicht.
+  - **intent:** Das System erkennt das Nachhause-Kommen: Ist der Bewohner abwesend, genügt die erste Bewegung am Eingang; die IP spielt dafür keine Rolle (entschieden 2026-11-23).
+  - **success:** Die erste Bewegung bei Abwesenheit löst genau ein Nachhause-Kommen aus und beendet die Abwesenheit, auch wenn die IP noch nicht oder schon wieder im Netzwerk ist; die Rückkehr der IP allein löst nichts aus und beendet die Abwesenheit nicht, und eine Bewegung bei Anwesenheit löst ebenfalls nichts aus.
 - **CAP-12**
   - **intent:** Das System weiss, ob es dunkel ist, anhand der Sonnenzeiten von Meteomatics.
   - **success:** Mit gesteuerter Zeit und einem Fake für Meteomatics gilt es zwischen Sonnenuntergang und Sonnenaufgang als dunkel, sonst nicht.
@@ -100,9 +100,7 @@ sources: []
 - CAP-3: Ist „Klimagerät offline“ ein Event des Aggregates AirConditioner, und soll ein Ausfall von Hilfsdienst/MQTT unterschieden werden?
 - CAP-4: Braucht es ein Event „Fehlercode behoben“?
 - CAP-9/15: Wie wird die IP geprüft (z. B. Ping oder ARP)? Bei 2 Minuten sind Fehlabwesenheiten durch WLAN-Standby des Telefons möglich und schalten dann Licht und Klima aus; die 50-W-Regel schützt nur den Schreibtisch-Fall.
-- CAP-11: Was gilt bei einer Bewegung, bevor die IP zurück ist (z. B. WLAN am Telefon aus)?
 - CAP-9: Zieht der Schreibtisch mehr als 50 W, während der Bewohner schon abwesend ist, endet die Abwesenheit dann auch, oder gilt die Regel nur vor dem Abwesend-Werden?
-- CAP-10: Braucht der Bewegungsmelder eine Entprellung oder Sperrzeit?
 - CAP-10: ADR 0004 (Matter über Home Assistant per WebSocket-API) ist vorgeschlagen und braucht die Bestätigung des Bewohners. Home Assistant läuft als Container; das Backend läuft im selben Docker Compose daneben, ebenso ein eigener Matter-Server-Container. Offen bleiben die Ressourcen auf dem Pi 5 und die Netzwerk-Erreichbarkeit zwischen den Containern, ob die Leistungsmessung der Steckdose über Home Assistant ankommt und welches Modul die neuen Geräte und Prozesse besitzt.
 - CAP-14: Wie alt darf der letzte Messwert für die Warm-Prüfung höchstens sein, und was gilt als „zuverlässig“?
 - CAP-9/10: Home-Assistant-Ausfall und Reconnect: Verhalten der 50-W-Regel bei veraltetem Leistungswert (z. B. eingefrorener Wert über 50 W hält die Anwesenheit).

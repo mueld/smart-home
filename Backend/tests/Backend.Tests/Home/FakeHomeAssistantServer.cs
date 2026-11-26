@@ -36,6 +36,12 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
 
     public int ConnectionAttempts => _attempts;
 
+    /// <summary>Current states served by <c>GET /api/states/{entity_id}</c>, as the JSON state object (see <see cref="State"/>).</summary>
+    public System.Collections.Concurrent.ConcurrentDictionary<string, string> States { get; } = new();
+
+    /// <summary>Subscriptions and REST reads across all connections, in order ("subscribe_trigger", "GET entity").</summary>
+    public System.Collections.Concurrent.ConcurrentQueue<string> Log { get; } = new();
+
     public string Url => $"http://127.0.0.1:{_port}";
 
     public async Task StartAsync()
@@ -46,6 +52,18 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
         _app = builder.Build();
         _app.UseWebSockets();
         _app.Map("/api/websocket", Handle);
+        _app.MapGet("/api/states/{entityId}", (string entityId, HttpContext context) =>
+        {
+            Log.Enqueue($"GET {entityId}");
+            if (context.Request.Headers.Authorization.ToString() != $"Bearer {Token}")
+            {
+                return Results.Unauthorized();
+            }
+
+            return States.TryGetValue(entityId, out var state)
+                ? Results.Text(state, "application/json")
+                : Results.NotFound(new { message = "Entity not found." });
+        });
         await _app.StartAsync();
 
         _port = new Uri(_app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.First()).Port;
@@ -115,9 +133,14 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
             {
                 var trigger = root.GetProperty("trigger");
                 connection.TriggerPlatform = trigger.GetProperty("platform").GetString();
-                connection.TriggerEntityId = trigger.GetProperty("entity_id").GetString();
-                connection.TriggerTo = trigger.TryGetProperty("to", out var to) ? to.GetString() : null;
+                var entityIds = trigger.GetProperty("entity_id");
+                connection.TriggerEntityIds = entityIds.ValueKind == JsonValueKind.Array
+                    ? [.. entityIds.EnumerateArray().Select(e => e.GetString()!)]
+                    : [entityIds.GetString()!];
+                connection.TriggerHasTo = trigger.TryGetProperty("to", out var to);
+                connection.TriggerTo = connection.TriggerHasTo && to.ValueKind == JsonValueKind.String ? to.GetString() : null;
                 connection.SubscriptionId = id;
+                Log.Enqueue("subscribe_trigger");
                 await connection.SendAsync($$"""{"id":{{id}},"type":"result","success":true,"result":null}""");
             }
         }
@@ -145,7 +168,10 @@ public sealed class FakeHomeAssistantServer : IAsyncDisposable
 
         public string? TriggerPlatform { get; set; }
 
-        public string? TriggerEntityId { get; set; }
+        public string[] TriggerEntityIds { get; set; } = [];
+
+        /// <summary>Whether the state trigger has a <c>to</c> at all; <c>to: null</c> means state changes only, no attribute changes.</summary>
+        public bool TriggerHasTo { get; set; }
 
         /// <summary>The <c>to</c> of the state trigger the gateway subscribed with.</summary>
         public string? TriggerTo { get; set; }

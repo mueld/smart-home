@@ -13,8 +13,10 @@ namespace Backend.Modules.Home.Infrastructure.HomeAssistant;
 
 /// <summary>
 /// The one Home Assistant adapter of the Home module (AD-18). Runs in the background and keeps one WebSocket
-/// connection: authenticates, subscribes to the motion sensor changing to <c>on</c>, and publishes a
-/// <see cref="MotionDetected"/> domain event through the mediator for every such event.
+/// connection: authenticates, subscribes to state changes of the motion sensor and the desk (switch and power), and
+/// publishes them through the mediator as <see cref="MotionDetected"/> (only changes to <c>on</c>),
+/// <see cref="DeskSwitched"/>, <see cref="DeskHasBeenSwitchedOffDomainEvent"/> (additionally, for changes to
+/// <c>off</c>) and <see cref="DeskPowerChanged"/>.
 /// Home Assistant delivers events at most once and without replay: motion during a lost connection is lost,
 /// and after a reconnect only new motion is reported.
 /// </summary>
@@ -26,6 +28,9 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
     private readonly ILogger<HomeAssistantGateway> _logger;
 
     private volatile GatewayStatus _status;
+
+    // Only touched by the connection loop; kept across reconnects.
+    private readonly Dictionary<string, DateTimeOffset> _lastPublished = [];
 
     public HomeAssistantGateway(
         IOptions<HomeAssistantOptions> options,
@@ -142,19 +147,51 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
         const int subscriptionId = 1;
         await SubscribeTrigger(socket, subscriptionId, cancellationToken);
 
-        while(true)
+        // Read after subscribing, so no change falls between the two; events of the subscription wait in the socket.
+        await PublishCurrentStatesAsync(cancellationToken);
+
+        while (true)
         {
             using var stateUpdate = await ReadAsync(socket, cancellationToken) ?? throw new IOException("Connection closed.");
-            if (TryParseTrigger(stateUpdate.RootElement, out var change))
+            if (TryParseTrigger(stateUpdate.RootElement, out var change) && IsNewerThanPublished(change!))
             {
                 await PublishDomainEventAsync(change!, cancellationToken);
             }
-        }        
+        }
     }
+
+    /// <summary>
+    /// After every (re)connect the current state of each entity is published, even if unchanged: changes during a
+    /// restart or a lost connection are not replayed by Home Assistant.
+    /// </summary>
+    private async Task PublishCurrentStatesAsync(CancellationToken cancellationToken)
+    {
+        using var http = new HttpClient { BaseAddress = new Uri(_options.Url.TrimEnd('/') + "/"), Timeout = _options.ConnectTimeout };
+        http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _options.Token);
+
+        foreach (var entityId in _options.SubscribedEntityIds)
+        {
+            using var response = await http.GetAsync($"api/states/{Uri.EscapeDataString(entityId)}", cancellationToken);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                _logger.LogWarning("Home Assistant does not know the entity {EntityId}; check the configuration.", entityId);
+                continue;
+            }
+
+            response.EnsureSuccessStatusCode();
+            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var state = await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
+            await PublishDomainEventAsync(ParseState(state.RootElement), cancellationToken);
+        }
+    }
+
+    /// <summary>A trigger event for a change already published from the state read (or older) is dropped.</summary>
+    private bool IsNewerThanPublished(StateChange change) =>
+        !_lastPublished.TryGetValue(change.EntityId, out var last) || change.ChangedAt > last;
 
     private async Task SubscribeTrigger(ClientWebSocket socket, int subscriptionId, CancellationToken cancellationToken)
     {
-        await SendAsync(socket, SubscribeTriggerStateOn(subscriptionId, _options.MotionSensorEntityId), cancellationToken);
+        await SendAsync(socket, SubscribeTriggerStateChanges(subscriptionId, _options.SubscribedEntityIds), cancellationToken);
 
         while (true)
         {
@@ -172,7 +209,7 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
 
             if (subscriptionConfirmed is false)
             {
-                throw new InvalidOperationException("Home Assistant rejected the subscription to the motion sensor.");
+                throw new InvalidOperationException("Home Assistant rejected the subscription to the motion sensor and the desk.");
             }
             SetStatus(GatewayConnectionState.Connected);
             return;
@@ -180,18 +217,53 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
     }
 
     /// <summary>One DI scope per event (AD-15). A failing handler must not take down the connection.</summary>
-    private async Task PublishDomainEventAsync(StateChange change,  CancellationToken cancellationToken)
+    private Task PublishDomainEventAsync(StateChange change, CancellationToken cancellationToken)
     {
-        if (!IsOnState(change) || change.EntityId != _options.MotionSensorEntityId)
+        if (!_lastPublished.TryGetValue(change.EntityId, out var last) || change.ChangedAt > last)
         {
-            return;
+            _lastPublished[change.EntityId] = change.ChangedAt;
         }
 
+        if (change.EntityId == _options.MotionSensorEntityId)
+        {
+            return IsOnState(change)
+                ? PublishAsync(new MotionDetected(change.EntityId, change.ChangedAt), change, cancellationToken)
+                : Task.CompletedTask;
+        }
+
+        if (change.EntityId == _options.DeskSwitchEntityId)
+        {
+            return IsOnState(change) || IsOffState(change)
+                ? PublishDeskSwitchAsync(change, cancellationToken)
+                : Task.CompletedTask;
+        }
+
+        if (change.EntityId == _options.DeskPowerEntityId)
+        {
+            return PublishAsync(new DeskPowerChanged(Number(change), change.ChangedAt), change, cancellationToken);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task PublishDeskSwitchAsync(StateChange change, CancellationToken cancellationToken)
+    {
+        await PublishAsync(new DeskSwitched(IsOnState(change), change.ChangedAt), change, cancellationToken);
+
+        if (IsOffState(change))
+        {
+            await PublishAsync(new DeskHasBeenSwitchedOffDomainEvent(change.ChangedAt), change, cancellationToken);
+        }
+    }
+
+    private async Task PublishAsync<TEvent>(TEvent domainEvent, StateChange change, CancellationToken cancellationToken)
+        where TEvent : INotification
+    {
         try
         {
             await using var scope = _scopes.CreateAsyncScope();
             var publisher = scope.ServiceProvider.GetRequiredService<IPublisher>();
-            await publisher.Publish(new MotionDetected(change.EntityId, change.ChangedAt), cancellationToken);
+            await publisher.Publish(domainEvent, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -199,7 +271,7 @@ internal sealed class HomeAssistantGateway : BackgroundService, IHomeAssistantGa
         }
         catch (Exception exception)
         {
-            _logger.LogError(exception, "Handling MotionDetected from {EntityId} at {DetectedAt} failed.", change.EntityId, change.ChangedAt);
+            _logger.LogError(exception, "Handling {Event} from {EntityId} at {ChangedAt} failed.", typeof(TEvent).Name, change.EntityId, change.ChangedAt);
         }
     }
 

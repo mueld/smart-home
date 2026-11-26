@@ -1,10 +1,11 @@
-using System.Data.Common;
-using System.Reflection;
 using Backend.Kernel.Persistence;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Data.Common;
+using System.Net.Security;
+using System.Reflection;
 
 namespace Backend.Kernel;
 
@@ -31,6 +32,42 @@ public static class KernelServiceCollectionExtensions
     /// <summary>
     /// Registers the DbContext of a module (AD-3) on the shared connection with the domain event interceptor.
     /// Commands in <paramref name="rootNamespace"/> and below (including the Contracts project) belong to the module.
+    /// </summary>
+    public static IServiceCollection AddModuleDbContext<TDbContext>(
+        this IServiceCollection services,
+        string rootNamespace,
+        string connectionString,
+        string schema,
+        Action<IServiceProvider, DbContextOptionsBuilder>? configureInterceptors = null)
+        where TDbContext : DbContext
+    {
+        services.AddDbContext<TDbContext>(
+              (sp, options) =>
+              {
+                  options.UseNpgsql(
+                      connectionString,
+                      sqlServer =>
+                      {
+                          sqlServer.MigrationsHistoryTable("__EFMigrationsHistory", schema);
+                      }
+                  );
+                  if (configureInterceptors != null)
+                  {
+                      configureInterceptors?.Invoke(sp, options);
+                  }
+                  else
+                  {
+                      options.AddInterceptors(sp.GetRequiredService<DomainEventInterceptor>());
+                  }
+              });
+        services.AddSingleton(new ModuleRegistration(typeof(TDbContext), rootNamespace));
+
+        return services;
+    }
+
+    /// <summary>
+    /// Like <see cref="AddModuleDbContext{TDbContext}"/>, but the caller chooses the database provider; the DbContext
+    /// uses the shared connection of the scope (AD-14).
     /// </summary>
     public static IServiceCollection AddModule<TDbContext>(
         this IServiceCollection services,

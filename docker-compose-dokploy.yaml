@@ -16,6 +16,20 @@ services:
       OTEL_SERVICE_NAME: smart-home-backend
       OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+      # Werte in Dokploy unter Environment setzen; Dokploy schreibt sie in die .env neben dieser Datei.
+      # PostgreSQL aus dem Dienst "postgres" unten; das Backend im Host-Netzwerk erreicht ihn über localhost,
+      # z. B. Host=localhost;Port=5432;Database=smarthome;Username=smarthome;Password=...
+      ConnectionStrings__database: ${DATABASE_CONNECTION_STRING:?DATABASE_CONNECTION_STRING in Dokploy setzen}
+      ConnectionStrings__Default: ${DATABASE_CONNECTION_STRING:?DATABASE_CONNECTION_STRING in Dokploy setzen}
+      # Home Assistant: Adresse und Long-lived Access Token (Secret).
+      HomeAssistant__Url: ${HOME_ASSISTANT_URL:-http://host.docker.internal:8123}
+      HomeAssistant__Token: ${HOME_ASSISTANT_TOKEN}
+      # Entity-IDs in Home Assistant: Bewegungsmelder am Eingang (Pflicht), Schreibtisch-Steckdose und ihr Leistungssensor.
+      HomeAssistant__MotionSensorEntityId: ${HA_MOTION_SENSOR_ENTITY_ID:-binary_sensor.living_room_eingang_occupancy}
+      HomeAssistant__DeskSwitchEntityId: ${HA_DESK_SWITCH_ENTITY_ID:-switch.living_room_schreibtisch}
+      HomeAssistant__DeskPowerEntityId: ${HA_DESK_POWER_ENTITY_ID:-sensor.living_room_schreibtisch_power}
+      # Optional: ab dieser Leistung gilt der Schreibtisch als benutzt (Standard 50).
+      Presence__DeskBusyAboveWatts: ${DESK_BUSY_ABOVE_WATTS:-50}
     # Home Assistant läuft im Host-Netzwerk; so erreicht das Backend es unter
     # http://host.docker.internal:8123
     extra_hosts:
@@ -23,11 +37,34 @@ services:
     ports:
       - "8081:8081"
     depends_on:
-      - lgtm
+      postgres:
+        condition: service_healthy
+      lgtm:
+        condition: service_started
     # Keine Traefik-Labels und kein dokploy-network hier: Eine Domain trägt man in Dokploy
     # unter Domains für den Dienst "backend" (Port 8081) ein. Dokploy ergänzt Netz und Labels
     # beim Deploy selbst. Dienste mit network_mode: host (homeassistant, matter-server)
     # dürfen keine Domain bekommen.
+
+  postgres:
+    image: postgres:18
+    restart: unless-stopped
+    environment:
+      TZ: Europe/Zurich
+      POSTGRES_DB: ${POSTGRES_DB:-smarthome}
+      POSTGRES_USER: ${POSTGRES_USER:-smarthome}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in Dokploy setzen}
+    ports:
+      # Nur auf dem Pi selbst erreichbar; das Backend läuft im Host-Netzwerk.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # Ab PostgreSQL 18 liegt das Datenverzeichnis in einem Unterordner von /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   homeassistant:
     container_name: homeassistant
@@ -66,3 +103,4 @@ services:
 
 volumes:
   lgtm-data:
+  postgres-data:

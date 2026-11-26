@@ -14,6 +14,16 @@ public sealed class HomeAssistantOptions
     /// <summary>Entity ID of the motion sensor at the entrance, for example <c>binary_sensor.living_room_eingang_occupancy</c>.</summary>
     public string MotionSensorEntityId { get; set; } = "";
 
+    /// <summary>Optional: the desk socket, for example <c>switch.living_room_schreibtisch</c>.</summary>
+    public string DeskSwitchEntityId { get; set; } = "";
+
+    /// <summary>Optional: the power sensor of the desk socket, for example <c>sensor.living_room_schreibtisch_power</c>.</summary>
+    public string DeskPowerEntityId { get; set; } = "";
+
+    /// <summary>The entities of the one state-trigger subscription: the motion sensor and the desk entities that are set.</summary>
+    public IReadOnlyList<string> SubscribedEntityIds =>
+        [.. new[] { MotionSensorEntityId, DeskSwitchEntityId, DeskPowerEntityId }.Where(id => !string.IsNullOrWhiteSpace(id))];
+
     public TimeSpan InitialBackoff { get; set; } = TimeSpan.FromSeconds(1);
 
     public TimeSpan MaxBackoff { get; set; } = TimeSpan.FromSeconds(30);
