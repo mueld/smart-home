@@ -37,7 +37,7 @@ public sealed class PresenceTests
         presence.RecordMotion(At(30));
 
         Assert.Equal(PresenceStatus.Present, presence.Status);
-        var homecoming = Assert.IsType<HomecomingDetected>(Assert.Single(presence.DomainEvents));
+        var homecoming = Assert.IsType<HomecomingDetectedDomainEvent>(Assert.Single(presence.DomainEvents));
         Assert.Equal(presence.Id, homecoming.PresenceId);
         Assert.Equal(At(30), homecoming.DetectedAt);
     }
@@ -51,7 +51,7 @@ public sealed class PresenceTests
         presence.RecordMotion(At(30, 20));
 
         Assert.Equal(PresenceStatus.Present, presence.Status);
-        Assert.IsType<HomecomingDetected>(Assert.Single(presence.DomainEvents));
+        Assert.IsType<HomecomingDetectedDomainEvent>(Assert.Single(presence.DomainEvents));
     }
 
     [Fact]
@@ -76,7 +76,7 @@ public sealed class PresenceTests
         presence.RecordMotion(At(40));
 
         Assert.Equal(PresenceStatus.Present, presence.Status);
-        Assert.IsType<HomecomingDetected>(Assert.Single(presence.DomainEvents));
+        Assert.IsType<HomecomingDetectedDomainEvent>(Assert.Single(presence.DomainEvents));
     }
 
     [Fact]
@@ -100,7 +100,7 @@ public sealed class PresenceTests
         presence.RecordMotion(At(31));
 
         Assert.Equal(PresenceStatus.Present, presence.Status);
-        Assert.Single(presence.DomainEvents.OfType<HomecomingDetected>());
+        Assert.Single(presence.DomainEvents.OfType<HomecomingDetectedDomainEvent>());
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public sealed class PresenceTests
         presence.RecordIpPresence(reachable: false, At(2));
 
         Assert.Equal(PresenceStatus.Away, presence.Status);
-        var away = Assert.IsType<BecameAway>(Assert.Single(presence.DomainEvents));
+        var away = Assert.IsType<BecameAwayDomainEvent>(Assert.Single(presence.DomainEvents));
         Assert.Equal(At(2), away.BecameAwayAt);
     }
 
@@ -141,8 +141,8 @@ public sealed class PresenceTests
 
         Assert.Collection(
             presence.DomainEvents,
-            e => Assert.Equal(At(302), Assert.IsType<BecameAway>(e).BecameAwayAt),
-            e => Assert.Equal(At(310), Assert.IsType<HomecomingDetected>(e).DetectedAt));
+            e => Assert.Equal(At(302), Assert.IsType<BecameAwayDomainEvent>(e).BecameAwayAt),
+            e => Assert.Equal(At(310), Assert.IsType<HomecomingDetectedDomainEvent>(e).DetectedAt));
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public sealed class PresenceTests
         Assert.Equal(PresenceStatus.Present, presence.Status);
 
         presence.RecordIpPresence(reachable: false, At(12));
-        Assert.Equal(At(12), Assert.IsType<BecameAway>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
+        Assert.Equal(At(12), Assert.IsType<BecameAwayDomainEvent>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
     }
 
     [Fact]
@@ -197,7 +197,7 @@ public sealed class PresenceTests
         Assert.Equal(PresenceStatus.Present, presence.Status);
 
         presence.RecordIpPresence(reachable: false, At(12));
-        Assert.Equal(At(12), Assert.IsType<BecameAway>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
+        Assert.Equal(At(12), Assert.IsType<BecameAwayDomainEvent>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
     }
 
     [Fact]
@@ -208,7 +208,7 @@ public sealed class PresenceTests
         presence.RecordPower(5, Threshold, At(5));
 
         Assert.Equal(PresenceStatus.Away, presence.Status);
-        Assert.Equal(At(2), Assert.IsType<BecameAway>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
+        Assert.Equal(At(2), Assert.IsType<BecameAwayDomainEvent>(Assert.Single(presence.DomainEvents)).BecameAwayAt);
     }
 
     [Fact]

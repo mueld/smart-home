@@ -64,4 +64,25 @@ public static class KernelServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Like <see cref="AddModuleDbContext{TDbContext}"/>, but the caller chooses the database provider; the DbContext
+    /// uses the shared connection of the scope (AD-14).
+    /// </summary>
+    public static IServiceCollection AddModule<TDbContext>(
+        this IServiceCollection services,
+        string rootNamespace,
+        Action<DbContextOptionsBuilder, DbConnection> configure)
+        where TDbContext : DbContext
+    {
+        services.AddDbContext<TDbContext>((provider, options) =>
+        {
+            configure(options, provider.GetRequiredService<DbConnection>());
+            options.AddInterceptors(provider.GetRequiredService<DomainEventInterceptor>());
+        });
+
+        services.AddSingleton(new ModuleRegistration(typeof(TDbContext), rootNamespace));
+
+        return services;
+    }
 }
