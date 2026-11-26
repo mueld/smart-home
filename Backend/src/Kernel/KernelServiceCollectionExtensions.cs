@@ -1,10 +1,11 @@
-using System.Data.Common;
-using System.Reflection;
 using Backend.Kernel.Persistence;
 using FluentValidation;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using System.Data.Common;
+using System.Net.Security;
+using System.Reflection;
 
 namespace Backend.Kernel;
 
@@ -32,18 +33,33 @@ public static class KernelServiceCollectionExtensions
     /// Registers the DbContext of a module (AD-3) on the shared connection with the domain event interceptor.
     /// Commands in <paramref name="rootNamespace"/> and below (including the Contracts project) belong to the module.
     /// </summary>
-    public static IServiceCollection AddModule<TDbContext>(
+    public static IServiceCollection AddModuleDbContext<TDbContext>(
         this IServiceCollection services,
         string rootNamespace,
-        Action<DbContextOptionsBuilder, DbConnection> configure)
+        string connectionString,
+        string schema,
+        Action<IServiceProvider, DbContextOptionsBuilder>? configureInterceptors = null)
         where TDbContext : DbContext
     {
-        services.AddDbContext<TDbContext>((provider, options) =>
-        {
-            configure(options, provider.GetRequiredService<DbConnection>());
-            options.AddInterceptors(provider.GetRequiredService<DomainEventInterceptor>());
-        });
-
+        services.AddDbContext<TDbContext>(
+              (sp, options) =>
+              {
+                  options.UseNpgsql(
+                      connectionString,
+                      sqlServer =>
+                      {
+                          sqlServer.MigrationsHistoryTable("__EFMigrationsHistory", schema);
+                      }
+                  );
+                  if (configureInterceptors != null)
+                  {
+                      configureInterceptors?.Invoke(sp, options);
+                  }
+                  else
+                  {
+                      options.AddInterceptors(sp.GetRequiredService<DomainEventInterceptor>());
+                  }
+              });
         services.AddSingleton(new ModuleRegistration(typeof(TDbContext), rootNamespace));
 
         return services;

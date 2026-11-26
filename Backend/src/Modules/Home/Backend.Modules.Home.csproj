@@ -8,16 +8,18 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Features\RecordIpPrecense\**" />
+    <EmbeddedResource Remove="Features\RecordIpPrecense\**" />
+    <None Remove="Features\RecordIpPrecense\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Kernel\Backend.Kernel.csproj" />
     <ProjectReference Include="..\AirConditioner.Contracts\Backend.Modules.AirConditioner.Contracts.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Features\" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,6 @@
+using Backend.Kernel;
 using Backend.Modules.Home.Infrastructure.HomeAssistant;
+using Backend.Modules.Home.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -17,6 +19,8 @@ public static class HomeModule
         services.AddSingleton<HomeAssistantGateway>();
         services.AddSingleton<IHomeAssistantGateway>(provider => provider.GetRequiredService<HomeAssistantGateway>());
         services.AddHostedService(provider => provider.GetRequiredService<HomeAssistantGateway>());
+
+        services.AddModuleDbContext<HomeDbContext>(typeof(HomeModule).Namespace!, configuration.GetConnectionString("database")!, HomeDbContext.Schema);
 
         return services;
     }
