@@ -1,5 +1,5 @@
 using Backend.Kernel;
-using Backend.Modules.Home.Features;
+using Backend.Modules.Home.Features.Shared;
 using Backend.Modules.Home.Infrastructure.HomeAssistant;
 using Backend.Modules.Home.Infrastructure.Persistence;
 using Microsoft.Extensions.Configuration;

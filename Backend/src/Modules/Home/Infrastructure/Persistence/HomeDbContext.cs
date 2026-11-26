@@ -1,6 +1,6 @@
 using Backend.Kernel.Abstractions;
 using Backend.Modules.Home.Domain;
-using Backend.Modules.Home.Features;
+using Backend.Modules.Home.Features.Shared;
 using Microsoft.EntityFrameworkCore;
 
 namespace Backend.Modules.Home.Infrastructure.Persistence;

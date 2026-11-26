@@ -84,7 +84,7 @@ public sealed class Presence : AggregateRoot
         if (at - LastSeenAt >= AwayAfter)
         {
             Status = PresenceStatus.Away;
-            Raise(new BecameAway(Id, LastSeenAt + AwayAfter));
+            Raise(new BecameAwayDomainEvent(Id, LastSeenAt + AwayAfter));
         }
     }
 
@@ -105,12 +105,12 @@ public sealed class Presence : AggregateRoot
 
         Status = PresenceStatus.Present;
         LastSeenAt = detectedAt;
-        Raise(new HomecomingDetected(Id, detectedAt));
+        Raise(new HomecomingDetectedDomainEvent(Id, detectedAt));
     }
 }
 
 /// <summary>The resident became away; <paramref name="BecameAwayAt"/> is the end of the deadline, not the time of the check.</summary>
-public sealed record BecameAway(Guid PresenceId, DateTimeOffset BecameAwayAt) : DomainEvent;
+public sealed record BecameAwayDomainEvent(Guid PresenceId, DateTimeOffset BecameAwayAt) : DomainEvent;
 
 /// <summary>The first motion at the entrance while away; <paramref name="DetectedAt"/> is the time of that motion.</summary>
-public sealed record HomecomingDetected(Guid PresenceId, DateTimeOffset DetectedAt) : DomainEvent;
+public sealed record HomecomingDetectedDomainEvent(Guid PresenceId, DateTimeOffset DetectedAt) : DomainEvent;

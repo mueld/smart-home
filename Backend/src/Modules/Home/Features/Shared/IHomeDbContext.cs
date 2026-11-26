@@ -2,7 +2,7 @@
 using Backend.Modules.Home.Domain;
 using Microsoft.EntityFrameworkCore;
 
-namespace Backend.Modules.Home.Features;
+namespace Backend.Modules.Home.Features.Shared;
 
 public interface IHomeDbContext: IDbContext
 {
