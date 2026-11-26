@@ -12,9 +12,10 @@ services:
     environment:
       TZ: Europe/Zurich
       ASPNETCORE_HTTP_PORTS: "8081"
-      # Traces, Metriken und Logs an Grafana LGTM (OTLP/gRPC im Compose-Netz).
+      # Traces, Metriken und Logs an Grafana LGTM (OTLP/gRPC). Im Host-Netzwerk gibt es den Namen "lgtm"
+      # nicht, darum über den auf localhost veröffentlichten Port.
       OTEL_SERVICE_NAME: smart-home-backend
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://lgtm:4317
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://localhost:4317
       OTEL_EXPORTER_OTLP_PROTOCOL: grpc
       # Werte in Dokploy unter Environment setzen; Dokploy schreibt sie in die .env neben dieser Datei.
       # PostgreSQL aus dem Dienst "postgres" unten; das Backend im Host-Netzwerk erreicht ihn über localhost,
@@ -95,9 +96,13 @@ services:
     restart: unless-stopped
     environment:
       TZ: Europe/Zurich
+      # Schlüssel, mit dem Grafana gespeicherte Zugangsdaten verschlüsselt. Nach dem ersten Setzen nicht mehr ändern.
+      GF_SECURITY_SECRET_KEY: ${GRAFANA_SECRET_KEY:?GRAFANA_SECRET_KEY in Dokploy setzen}
     ports:
       # Grafana. Host-Port 3000 belegt Dokploy selbst.
       - "3001:3000"
+      # OTLP/gRPC für das Backend, nur auf dem Pi selbst erreichbar.
+      - "127.0.0.1:4317:4317"
     volumes:
       - lgtm-data:/data
 
