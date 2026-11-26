@@ -56,7 +56,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in Dokploy setzen}
     ports:
       # Nur auf dem Pi selbst erreichbar; das Backend läuft im Host-Netzwerk.
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - ${POSTGRES_PORT:-5432}:5432
     volumes:
       # Ab PostgreSQL 18 liegt das Datenverzeichnis in einem Unterordner von /var/lib/postgresql.
       - postgres-data:/var/lib/postgresql
