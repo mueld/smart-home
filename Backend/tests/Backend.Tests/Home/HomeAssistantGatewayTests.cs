@@ -77,6 +77,32 @@ public sealed class RecordDeskEventsHandler(DeskRecorder recorder)
 }
 
 /// <summary>
+/// The controlled time of the tests, which also records the timers the gateway creates. Advancing the time before the
+/// gateway has started its backoff timer would let the timer start at the advanced time, and it would never fire.
+/// </summary>
+public sealed class RecordingTimeProvider(FakeTimeProvider inner) : TimeProvider
+{
+    private readonly System.Collections.Concurrent.ConcurrentQueue<TimeSpan> _dueTimes = new();
+
+    public IReadOnlyCollection<TimeSpan> DueTimes => _dueTimes;
+
+    public override DateTimeOffset GetUtcNow() => inner.GetUtcNow();
+
+    public override long GetTimestamp() => inner.GetTimestamp();
+
+    public override long TimestampFrequency => inner.TimestampFrequency;
+
+    public override TimeZoneInfo LocalTimeZone => inner.LocalTimeZone;
+
+    public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+    {
+        var timer = inner.CreateTimer(callback, state, dueTime, period);
+        _dueTimes.Enqueue(dueTime);
+        return timer;
+    }
+}
+
+/// <summary>
 /// Tests the Home Assistant adapter at its seam: the domain events that reach the mediator, the status it reports
 /// and what it sends over a real WebSocket to an in-process fake Home Assistant. Time is controlled.
 /// </summary>
@@ -90,10 +116,13 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
 
     private readonly FakeHomeAssistantServer _server = new();
     private readonly FakeTimeProvider _time = new(T0);
+    private readonly RecordingTimeProvider _timers;
     private readonly MotionRecorder _recorder = new();
     private readonly DeskRecorder _deskRecorder = new();
     private ServiceProvider? _services;
     private IHomeAssistantGateway _gateway = null!;
+
+    public HomeAssistantGatewayTests() => _timers = new RecordingTimeProvider(_time);
 
     public ValueTask InitializeAsync() => ValueTask.CompletedTask;
 
@@ -132,7 +161,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var services = new ServiceCollection();
         services.AddLogging(logging => logging.SetMinimumLevel(LogLevel.Critical));
-        services.AddSingleton<TimeProvider>(_time);
+        services.AddSingleton<TimeProvider>(_timers);
         services.AddSingleton(_recorder);
         services.AddSingleton(_deskRecorder);
         services.AddMediator(options => options.ServiceLifetime = ServiceLifetime.Scoped);
@@ -163,6 +192,10 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
     private Task WaitConnected() => Eventually(() => _gateway.Status.State == GatewayConnectionState.Connected, "gateway connected");
 
     private static async Task Quiet() => await Task.Delay(150);
+
+    /// <summary>Waits until the gateway has started its <paramref name="count"/>th backoff (any timer but the connect timeout).</summary>
+    private Task WaitForBackoff(int count) =>
+        Eventually(() => _timers.DueTimes.Count(due => due != TimeSpan.FromSeconds(10)) >= count, $"backoff {count} started");
 
     [Fact]
     public async Task It_authenticates_and_subscribes_to_state_changes_of_the_motion_sensor_and_the_desk()
@@ -305,7 +338,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         await Eventually(() => _deskRecorder.Events.Length == 2, "the first states");
 
         _server.Connections[0].Drop();
-        await Eventually(() => _gateway.Status.State == GatewayConnectionState.Disconnected, "disconnected");
+        await WaitForBackoff(1);
         _time.Advance(TimeSpan.FromSeconds(1));
 
         await Eventually(() => _deskRecorder.Events.Length == 4, "the same states once more");
@@ -467,6 +500,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         await Eventually(() => _gateway.Status.State == GatewayConnectionState.Disconnected, "disconnected");
         Assert.False(_gateway.Status.IsConnected);
 
+        await WaitForBackoff(1);
         _time.Advance(TimeSpan.FromSeconds(1)); // the initial backoff
         await Eventually(() => _server.Connections.Count == 2, "second connection");
         await WaitConnected();
@@ -484,21 +518,25 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
         _server.RefuseConnections = true;
         await StartGatewayAsync(url: _server.Url, maxBackoff: "00:00:04");
 
-        await Eventually(() => _server.ConnectionAttempts == 1, "first attempt");
+        await WaitForBackoff(1);
+        Assert.Equal(1, _server.ConnectionAttempts);
         _time.Advance(TimeSpan.FromSeconds(1));
-        await Eventually(() => _server.ConnectionAttempts == 2, "second attempt after 1 s");
+        await WaitForBackoff(2);
+        Assert.Equal(2, _server.ConnectionAttempts);
 
         _time.Advance(TimeSpan.FromSeconds(1));
         await Quiet();
         Assert.Equal(2, _server.ConnectionAttempts); // the next wait is 2 s
         _time.Advance(TimeSpan.FromSeconds(1));
-        await Eventually(() => _server.ConnectionAttempts == 3, "third attempt after 2 s");
+        await WaitForBackoff(3);
+        Assert.Equal(3, _server.ConnectionAttempts);
 
         _time.Advance(TimeSpan.FromSeconds(3));
         await Quiet();
         Assert.Equal(3, _server.ConnectionAttempts); // the next wait is 4 s
         _time.Advance(TimeSpan.FromSeconds(1));
-        await Eventually(() => _server.ConnectionAttempts == 4, "fourth attempt after 4 s");
+        await WaitForBackoff(4);
+        Assert.Equal(4, _server.ConnectionAttempts);
 
         _time.Advance(TimeSpan.FromSeconds(4));
         await Eventually(() => _server.ConnectionAttempts == 5, "fifth attempt: the wait stays at the limit");
@@ -516,6 +554,7 @@ public sealed class HomeAssistantGatewayTests : IAsyncLifetime
 
         await Eventually(() => _gateway.Status.State == GatewayConnectionState.Disconnected, "disconnected while down");
 
+        await WaitForBackoff(1);
         await _server.StartAsync();
         _time.Advance(TimeSpan.FromSeconds(1));
 
