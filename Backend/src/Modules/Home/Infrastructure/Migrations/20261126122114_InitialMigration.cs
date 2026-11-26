@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace Backend.Modules.Home.Infrastructure.Migrations;
 
 /// <inheritdoc />
-public partial class _20261126121116_InitialMigration : Migration
+public partial class _20261126122114_InitialMigration : Migration
 {
     /// <inheritdoc />
     protected override void Up(MigrationBuilder migrationBuilder)
@@ -33,7 +33,7 @@ public partial class _20261126121116_InitialMigration : Migration
             schema: "home",
             table: "Presences",
             columns: new[] { "Id", "DeskIsBusy", "LastSeenAt", "Status" },
-            values: new object[] { new Guid("01a217c4-61e0-7693-b43b-c1deaf2cf518"), false, new DateTimeOffset(new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 0 });
+            values: new object[] { new Guid("01a217cc-f3c5-752e-8438-65a412278e23"), false, new DateTimeOffset(new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)), 0 });
     }
 
     /// <inheritdoc />

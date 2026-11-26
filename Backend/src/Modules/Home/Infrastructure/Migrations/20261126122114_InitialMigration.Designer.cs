@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Backend.Modules.Home.Infrastructure.Migrations;
 
 [DbContext(typeof(HomeDbContext))]
-[Migration("20261126121116_InitialMigration")]
-partial class _20261126121116_InitialMigration
+[Migration("20261126122114_InitialMigration")]
+partial class _20261126122114_InitialMigration
 {
     /// <inheritdoc />
     protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -48,7 +48,7 @@ partial class _20261126121116_InitialMigration
                 b.HasData(
                     new
                     {
-                        Id = new Guid("01a217c4-61e0-7693-b43b-c1deaf2cf518"),
+                        Id = new Guid("01a217cc-f3c5-752e-8438-65a412278e23"),
                         DeskIsBusy = false,
                         LastSeenAt = new DateTimeOffset(new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                         Status = 0

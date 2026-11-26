@@ -16,7 +16,7 @@ partial class HomeDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261126121116_InitialMigration";
+    public override string LastMigrationId => "20261126122114_InitialMigration";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -50,7 +50,7 @@ partial class HomeDbContextModelSnapshot : ModelSnapshot
                 b.HasData(
                     new
                     {
-                        Id = new Guid("01a217c4-61e0-7693-b43b-c1deaf2cf518"),
+                        Id = new Guid("01a217cc-f3c5-752e-8438-65a412278e23"),
                         DeskIsBusy = false,
                         LastSeenAt = new DateTimeOffset(new DateTime(1, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                         Status = 0
